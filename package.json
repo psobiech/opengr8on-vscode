@@ -480,7 +480,7 @@
   },
   "dependencies": {
     "adm-zip": "0.6.1",
-    "fast-xml-parser": "5.11.2",
+    "fast-xml-parser": "5.12.0",
     "yaml": "2.8.1"
   },
   "devDependencies": {
