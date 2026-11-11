@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true # lib/opengr8on-node, bundled from TS source
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x # VS Code 1.85+ extension host runtime (esbuild target node20)
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - run: npm run package -- -o opengr8on-vscode.vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opengr8on-vscode-vsix
+          path: opengr8on-vscode.vsix
+          if-no-files-found: error

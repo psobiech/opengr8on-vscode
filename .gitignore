@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+*.vsix
+.vscode-test/
+coverage/
+# local secrets / scratch
+.opengr8on/
+*.omp
+.idea/

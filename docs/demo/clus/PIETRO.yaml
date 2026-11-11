@@ -1,0 +1,23 @@
+clu:
+  name: PIETRO
+  serial: 100000102
+  ip: 192.168.1.51
+  hw: { type: 0x13, version: 1 }
+  fw: { type: 3, version: 0x203 }
+
+modules:
+  - serial: 330002001
+    type: "0x1a"
+    comment: "02 02"
+    ios:
+      - id: DIM2001
+        class: 5
+        channel: 0
+        name: LAMPA_SYPIALNIA
+        features: { RampTime: 500, MinValue: 0.1 }
+  - serial: 330002002
+    type: "0x17"
+    comment: "02 01"
+    ios:
+      - { id: ROL2001, class: 24, channel: 0, name: ROLETA_SYPIALNIA }
+      - { id: POW2001, class: 12, channel: 0 }

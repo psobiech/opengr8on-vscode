@@ -1,0 +1,3 @@
+# Real Object Manager output: kept byte for byte (CRLF from OM on Windows, LF from OM on Linux).
+# Golden tests compare bytes, so git must never convert line endings here (core.autocrlf, CI).
+tests/fixtures/** -text

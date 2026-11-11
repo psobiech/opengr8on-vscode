@@ -1,0 +1,341 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "opengr8on CLU (format 1, docs/PROJECT_FORMAT.md)",
+  "type": "object",
+  "required": [
+    "clu"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "key": {
+      "type": "string",
+      "description": "Interface name, or index as a quoted string (\"18\")"
+    },
+    "features": {
+      "type": "object",
+      "description": "Initial feature values by interface feature name (or index as \"18\"); document order is kept",
+      "propertyNames": {
+        "$ref": "#/definitions/key"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": [
+              "number",
+              "string",
+              "boolean"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "lua"
+            ],
+            "properties": {
+              "lua": {
+                "type": "string"
+              },
+              "comment": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "description": "Raw Lua value written verbatim"
+          }
+        ]
+      }
+    },
+    "action": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "description": "OM action: CLU_1->LAMP->Switch(0) or CLU_1->script(args)"
+        },
+        {
+          "type": "object",
+          "required": [
+            "lua"
+          ],
+          "properties": {
+            "lua": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Raw Lua line, emitted verbatim"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "events": {
+      "type": "object",
+      "description": "Actions by interface event name (or index as \"13\")",
+      "propertyNames": {
+        "$ref": "#/definitions/key"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/action"
+        }
+      }
+    },
+    "objectId": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}[0-9]{4}$"
+    },
+    "ipv4": {
+      "type": "string",
+      "pattern": "^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$"
+    },
+    "hwfw": {
+      "type": "object",
+      "required": [
+        "type",
+        "version"
+      ],
+      "properties": {
+        "type": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "clu": {
+      "type": "object",
+      "required": [
+        "name",
+        "serial",
+        "ip",
+        "hw",
+        "fw"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "OM display name; must match the file name"
+        },
+        "serial": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Decimal serial"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^CLU[0-9]+$",
+          "description": "Object id; default CLU<serial>"
+        },
+        "ip": {
+          "$ref": "#/definitions/ipv4"
+        },
+        "hw": {
+          "$ref": "#/definitions/hwfw",
+          "description": "OM.LUA header HwType / HwVersion"
+        },
+        "fw": {
+          "$ref": "#/definitions/hwfw",
+          "description": "OM.LUA header FwType / FwVersion"
+        },
+        "remotes": {
+          "type": "array",
+          "description": "Remote CLU proxies (OBJECT:new(1, ...)) in order; default: all other project CLUs by file name",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Name of another CLU file in the project"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "ip"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^CLU[0-9]+$"
+                  },
+                  "ip": {
+                    "$ref": "#/definitions/ipv4"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "netmask": {
+          "$ref": "#/definitions/ipv4",
+          "description": "GATE only: project network netmask OM writes into GATE:new (written by import)"
+        },
+        "gateway": {
+          "$ref": "#/definitions/ipv4",
+          "description": "GATE only: project network gateway OM writes into GATE:new (written by import)"
+        },
+        "ioOrder": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/objectId"
+          },
+          "description": "IO declaration order by id when it differs from module order (written by import)"
+        },
+        "features": {
+          "$ref": "#/definitions/features"
+        },
+        "events": {
+          "$ref": "#/definitions/events"
+        }
+      }
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "serial",
+          "type",
+          "comment",
+          "ios"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "serial": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^0x[0-9a-f]+$",
+            "description": "OBJECT:new type literal, verbatim (\"0x1a\")"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Trailing comment fields after the serial, verbatim (\"02 02\")"
+          },
+          "ios": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "class",
+                "channel"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/definitions/objectId"
+                },
+                "class": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "description": "Object class number or interface object name"
+                },
+                "channel": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "name": {
+                  "type": "string",
+                  "pattern": "^[^=\\r\\n]+$",
+                  "description": "NAME_IO; default x<module serial>_<Obj>_<nn>"
+                },
+                "inactive": {
+                  "type": "boolean"
+                },
+                "features": {
+                  "$ref": "#/definitions/features"
+                },
+                "events": {
+                  "$ref": "#/definitions/events"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "description": "Virtual objects (Timer, Thermostat, Scheduler, ...)",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "class",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/definitions/objectId"
+          },
+          "class": {
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Interface object name (Timer) or class number"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Interface object version (needed when several exist)"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[^=\\r\\n]+$",
+            "description": "NAME_PERIPHERY"
+          },
+          "removed": {
+            "type": "boolean"
+          },
+          "features": {
+            "$ref": "#/definitions/features"
+          },
+          "events": {
+            "$ref": "#/definitions/events"
+          }
+        }
+      }
+    },
+    "scripts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "description": "Body in scripts/<CLU name>/<name>.lua"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            }
+          }
+        }
+      }
+    }
+  }
+}
