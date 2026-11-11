@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "opengr8on project root (format 1, docs/PROJECT_FORMAT.md)",
+  "type": "object",
+  "required": ["format", "name"],
+  "properties": {
+    "format": { "const": 1, "description": "Project format version" },
+    "name": { "type": "string", "minLength": 1, "description": "Project name" },
+    "interfaces": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Extra interface XML directories, relative to the project root"
+    }
+  },
+  "additionalProperties": false
+}

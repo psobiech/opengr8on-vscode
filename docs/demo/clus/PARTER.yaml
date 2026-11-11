@@ -1,0 +1,86 @@
+clu:
+  name: PARTER
+  serial: 100000101
+  ip: 192.168.1.50
+  hw: { type: 0x13, version: 1 }
+  fw: { type: 3, version: 0x203 }
+  features:
+    UseCloud: 0
+  events:
+    OnInit:
+      - PARTER->TIMER_ROLETY->Start()
+
+modules:
+  - serial: 330001001
+    type: "0x17"
+    comment: "02 01"
+    ios:
+      - { id: ROL1001, class: 24, channel: 0, name: ROLETA_SALON }
+      - { id: POW1001, class: 12, channel: 0 }
+  - serial: 330001002
+    type: "0x17"
+    comment: "02 01"
+    ios:
+      - { id: ROL1002, class: 24, channel: 0, name: ROLETA_KUCHNIA }
+      - { id: POW1002, class: 12, channel: 0 }
+  - serial: 330001003
+    type: "0x1e"
+    comment: "02 02"
+    ios:
+      - { id: DOU1001, class: 4, channel: 0, name: LAMPA_SALON }
+      - { id: DOU1002, class: 4, channel: 1, name: LAMPA_KUCHNIA }
+      - { id: DOU1003, class: 4, channel: 2, name: LAMPA_KORYTARZ }
+      - { id: DOU1004, class: 4, channel: 3, name: GNIAZDO_TARAS }
+      - id: DIN1001
+        class: 3
+        channel: 0
+        name: CZUJNIK_DRZWI
+        events:
+          OnSwitchOn:
+            - PARTER->LAMPA_KORYTARZ->SwitchOn(0)
+            - PARTER->AddToLog("Drzwi otwarte")
+      - { id: DIN1002, class: 3, channel: 1, name: CZUJNIK_OKNO_SALON }
+      - { id: POW1003, class: 12, channel: 0 }
+  - serial: 330001004
+    type: "0x1c"
+    comment: "02 01"
+    ios:
+      - id: BUT1001
+        class: 7
+        channel: 0
+        name: PRZYCISK_SALON_LAMPA
+        events:
+          OnClick:
+            - PARTER->LAMPA_SALON->Switch(0)
+      - id: BUT1002
+        class: 7
+        channel: 1
+        name: PRZYCISK_SALON_ROLETA
+        events:
+          OnClick:
+            - PARTER->ROLETA_SALON->Start(0)
+      - id: BUT1003
+        class: 7
+        channel: 2
+        name: PRZYCISK_SYPIALNIA
+        events:
+          OnClick:
+            - PIETRO->LAMPA_SYPIALNIA->Switch(0, 500)
+      - { id: BUT1004, class: 7, channel: 3, name: PRZYCISK_WSZYSTKO_OFF }
+      - { id: PAN1001, class: 20, channel: 0, name: TEMPERATURA_SALON }
+      - { id: PAN1002, class: 21, channel: 0 }
+      - { id: PAN1003, class: 29, channel: 0 }
+      - { id: POW1004, class: 12, channel: 0 }
+
+objects:
+  - id: TIM1001
+    class: Timer
+    version: 1
+    name: TIMER_ROLETY
+    features: { Time: 600, Mode: CountDown }
+    events:
+      OnTimer:
+        - PARTER->zamknij_rolety()
+
+scripts:
+  - name: zamknij_rolety

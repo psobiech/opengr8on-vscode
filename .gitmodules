@@ -1,0 +1,4 @@
+[submodule "lib/opengr8on-node"]
+	path = lib/opengr8on-node
+	url = https://github.com/psobiech/opengr8on-node.git
+	branch = develop

@@ -1,0 +1,495 @@
+{
+  "name": "opengr8on-vscode",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.0.1",
+  "publisher": "psobiech",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/psobiech/opengr8on-vscode.git"
+  },
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0",
+    "node": ">=20"
+  },
+  "extensionDependencies": [],
+  "extensionPack": [
+    "sumneko.lua",
+    "redhat.vscode-yaml"
+  ],
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "grenton",
+    "opengr8on",
+    "clu",
+    "lua",
+    "home automation"
+  ],
+  "main": "dist/extension.js",
+  "activationEvents": [
+    "workspaceContains:opengr8on.yaml"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opengr8on",
+          "title": "%viewsContainer.opengr8on.title%",
+          "icon": "resources/icons/opengr8on.svg"
+        }
+      ]
+    },
+    "views": {
+      "opengr8on": [
+        {
+          "id": "opengr8on.devices",
+          "name": "%view.devices.name%"
+        },
+        {
+          "id": "opengr8on.project",
+          "name": "%view.project.name%"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "opengr8on.devices",
+        "contents": "%viewsWelcome.devices.contents%"
+      },
+      {
+        "view": "opengr8on.project",
+        "contents": "%viewsWelcome.project.contents%",
+        "when": "!opengr8on.hasProject"
+      }
+    ],
+    "commands": [
+      {
+        "command": "opengr8on.discover",
+        "title": "%command.discover.title%",
+        "category": "OpenGr8on",
+        "icon": "$(search)"
+      },
+      {
+        "command": "opengr8on.selectInterface",
+        "title": "%command.selectInterface.title%",
+        "category": "OpenGr8on",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "opengr8on.importKeys",
+        "title": "%command.importKeys.title%",
+        "category": "OpenGr8on",
+        "icon": "$(key)"
+      },
+      {
+        "command": "opengr8on.forgetCluKeys",
+        "title": "%command.forgetCluKeys.title%",
+        "category": "OpenGr8on"
+      },
+      {
+        "command": "opengr8on.adoptClu",
+        "title": "%command.adoptClu.title%",
+        "category": "OpenGr8on",
+        "icon": "$(link)"
+      },
+      {
+        "command": "opengr8on.newProject",
+        "title": "%command.newProject.title%",
+        "category": "OpenGr8on"
+      },
+      {
+        "command": "opengr8on.importOmp",
+        "title": "%command.importOmp.title%",
+        "category": "OpenGr8on"
+      },
+      {
+        "command": "opengr8on.generate",
+        "title": "%command.generate.title%",
+        "category": "OpenGr8on",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "opengr8on.upload",
+        "title": "%command.upload.title%",
+        "category": "OpenGr8on",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "opengr8on.openLogs",
+        "title": "%command.openLogs.title%",
+        "category": "OpenGr8on",
+        "icon": "$(output)"
+      },
+      {
+        "command": "opengr8on.checkAlive",
+        "title": "%command.checkAlive.title%",
+        "category": "OpenGr8on",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "opengr8on.downloadFile",
+        "title": "%command.downloadFile.title%",
+        "category": "OpenGr8on",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "opengr8on.diagnosticPack",
+        "title": "%command.diagnosticPack.title%",
+        "category": "OpenGr8on",
+        "icon": "$(report)"
+      },
+      {
+        "command": "opengr8on.refreshModules",
+        "title": "%command.refreshModules.title%",
+        "category": "OpenGr8on",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "opengr8on.setCluIp",
+        "title": "%command.setCluIp.title%",
+        "category": "OpenGr8on",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "opengr8on.resetClu",
+        "title": "%command.resetClu.title%",
+        "category": "OpenGr8on",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "opengr8on.setFeature",
+        "title": "%command.setFeature.title%",
+        "category": "OpenGr8on",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "opengr8on.executeMethod",
+        "title": "%command.executeMethod.title%",
+        "category": "OpenGr8on",
+        "icon": "$(play)"
+      },
+      {
+        "command": "opengr8on.setLogLevel",
+        "title": "%command.setLogLevel.title%",
+        "category": "OpenGr8on",
+        "icon": "$(settings)"
+      },
+      {
+        "command": "opengr8on.selectClu",
+        "title": "%command.selectClu.title%",
+        "category": "OpenGr8on",
+        "icon": "$(circuit-board)"
+      },
+      {
+        "command": "opengr8on.importFromClu",
+        "title": "%command.importFromClu.title%",
+        "category": "OpenGr8on",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "opengr8on.diffWithClu",
+        "title": "%command.diffWithClu.title%",
+        "category": "OpenGr8on",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "opengr8on.runSelection",
+        "title": "%command.runSelection.title%",
+        "category": "OpenGr8on",
+        "icon": "$(play)"
+      },
+      {
+        "command": "opengr8on.newScript",
+        "title": "%command.newScript.title%",
+        "category": "OpenGr8on",
+        "icon": "$(add)"
+      },
+      {
+        "command": "opengr8on.deleteItem",
+        "title": "%command.deleteItem.title%",
+        "category": "OpenGr8on",
+        "icon": "$(trash)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "opengr8on.discover",
+          "when": "view == opengr8on.devices",
+          "group": "navigation"
+        },
+        {
+          "command": "opengr8on.selectInterface",
+          "when": "view == opengr8on.devices",
+          "group": "navigation"
+        },
+        {
+          "command": "opengr8on.upload",
+          "when": "view == opengr8on.project",
+          "group": "navigation"
+        },
+        {
+          "command": "opengr8on.diffWithClu",
+          "when": "view == opengr8on.project",
+          "group": "navigation"
+        },
+        {
+          "command": "opengr8on.generate",
+          "when": "view == opengr8on.project",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "opengr8on.adoptClu",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "9_keys"
+        },
+        {
+          "command": "opengr8on.forgetCluKeys",
+          "when": "view == opengr8on.devices && viewItem =~ /^clu/",
+          "group": "9_keys"
+        },
+        {
+          "command": "opengr8on.checkAlive",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "1_status"
+        },
+        {
+          "command": "opengr8on.downloadFile",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "2_files"
+        },
+        {
+          "command": "opengr8on.diagnosticPack",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "2_files"
+        },
+        {
+          "command": "opengr8on.refreshModules",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "3_manage"
+        },
+        {
+          "command": "opengr8on.setCluIp",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "3_manage"
+        },
+        {
+          "command": "opengr8on.resetClu",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "3_manage"
+        },
+        {
+          "command": "opengr8on.checkAlive",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "inline"
+        },
+        {
+          "command": "opengr8on.setFeature",
+          "when": "view == opengr8on.devices && viewItem == feature.set",
+          "group": "inline"
+        },
+        {
+          "command": "opengr8on.setFeature",
+          "when": "view == opengr8on.devices && viewItem == feature.set",
+          "group": "1_live"
+        },
+        {
+          "command": "opengr8on.executeMethod",
+          "when": "view == opengr8on.devices && viewItem == io.mapped",
+          "group": "inline"
+        },
+        {
+          "command": "opengr8on.executeMethod",
+          "when": "view == opengr8on.devices && viewItem == io.mapped",
+          "group": "1_live"
+        },
+        {
+          "command": "opengr8on.openLogs",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "inline"
+        },
+        {
+          "command": "opengr8on.openLogs",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "1_status"
+        },
+        {
+          "command": "opengr8on.setLogLevel",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "1_status"
+        },
+        {
+          "command": "opengr8on.importFromClu",
+          "when": "view == opengr8on.devices && viewItem == clu",
+          "group": "4_project"
+        },
+        {
+          "command": "opengr8on.newScript",
+          "when": "view == opengr8on.project && viewItem == group.scripts",
+          "group": "inline"
+        },
+        {
+          "command": "opengr8on.newScript",
+          "when": "view == opengr8on.project && viewItem == group.scripts",
+          "group": "1_scripts"
+        },
+        {
+          "command": "opengr8on.newScript",
+          "when": "view == opengr8on.project && viewItem == projectClu",
+          "group": "1_scripts"
+        },
+        {
+          "command": "opengr8on.deleteItem",
+          "when": "view == opengr8on.project && viewItem =~ /^project(Object|Script)$/",
+          "group": "9_delete"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "opengr8on.forgetCluKeys",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.adoptClu",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.checkAlive",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.downloadFile",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.diagnosticPack",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.refreshModules",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.setCluIp",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.resetClu",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.setFeature",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.executeMethod",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.setLogLevel",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.importFromClu",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.deleteItem",
+          "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "opengr8on.runSelection",
+          "when": "editorLangId == lua && opengr8on.hasProject",
+          "group": "opengr8on"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OpenGr8on",
+      "properties": {
+        "opengr8on.network.interface": {
+          "type": "string",
+          "default": "",
+          "description": "%config.network.interface.description%"
+        },
+        "opengr8on.uploadOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.uploadOnSave.description%"
+        },
+        "opengr8on.liveValues.intervalMs": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 500,
+          "description": "%config.liveValues.intervalMs.description%"
+        },
+        "opengr8on.generate.lineEndings": {
+          "type": "string",
+          "enum": [
+            "crlf",
+            "lf"
+          ],
+          "enumDescriptions": [
+            "%config.generate.lineEndings.enum.0%",
+            "%config.generate.lineEndings.enum.1%"
+          ],
+          "default": "crlf",
+          "description": "%config.generate.lineEndings.description%"
+        }
+      }
+    },
+    "yamlValidation": [
+      {
+        "fileMatch": [
+          "opengr8on.yaml"
+        ],
+        "url": "./schemas/opengr8on.schema.json"
+      },
+      {
+        "fileMatch": [
+          "clus/*.yaml"
+        ],
+        "url": "./schemas/clu.schema.json"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "opengr8on.runSelection",
+        "key": "ctrl+alt+enter",
+        "mac": "cmd+alt+enter",
+        "when": "editorTextFocus && editorLangId == lua && opengr8on.hasProject"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "adm-zip": "0.6.1",
+    "fast-xml-parser": "5.11.2",
+    "yaml": "2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "@types/vscode": "1.85.0",
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.9"
+  },
+  "l10n": "./l10n"
+}
