@@ -143,14 +143,17 @@ export function arrowObjectItems(index: ProjectIndex, cluRef: string): Item[] {
   return items;
 }
 
-/** OM notation `CLU->OBJECT->`: readable features (as values) and execute methods (as calls). */
+/**
+ * OM notation `CLU->OBJECT->`: features (read or assigned) and execute methods (as calls). Features
+ * without get (HttpListener ResponseBody, ...) hold tables readable on their own CLU only.
+ */
 export function arrowMemberItems(o: ObjInfo): Item[] {
   if (!o.iface) return [];
   const id = (n: string) => /^[A-Za-z_]\w*$/.test(n);
   return [
     ...o.iface.features
-      .filter((f) => f.get && id(f.name))
-      .map((f) => ({ label: f.name, insert: f.name, detail: `${f.index} · ${featureDoc(f)}`, sort: `0${String(f.index).padStart(4, "0")}`, kind: "feature" as const })),
+      .filter((f) => (f.get || f.set) && id(f.name))
+      .map((f) => ({ label: f.name, insert: f.name, detail: `${f.index} · ${featureDoc(f)}${f.get ? "" : " · table, read on its own CLU only"}`, sort: `0${String(f.index).padStart(4, "0")}`, kind: "feature" as const })),
     ...o.iface.methods
       .filter((m) => (m.call === "execute" || m.call === "set") && id(m.name))
       .map((m) => ({ label: m.name, insert: `${m.name}(${paramSnippet(m, o.iface)})`, snippet: true, detail: `${m.index} · ${methodSig(m)}`, sort: `1${m.name}`, kind: "method" as const })),

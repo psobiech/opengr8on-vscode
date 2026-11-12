@@ -1,5 +1,11 @@
 # References (sibling repos, local paths relative to this repo)
 
+## Grenton manuals
+
+- GATE HTTP (PL, beta): https://storage.grenton.com/docs/manuals/beta/GATE_HTTP_User_Manual_PL.pdf —
+  HttpRequest / HttpListener usage: text features are Lua string contents (`\r\n` typed by the user),
+  ResponseBody / QueryStringParams / headers are tables read by scripts on the GATE itself.
+
 ## ../opengr8on-node — TypeScript CLU protocol library (AGPL-3.0, ESM, Node ≥ 18)
 
 Reuse, do not re-implement. Included as git submodule `lib/opengr8on-node`; import only

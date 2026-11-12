@@ -186,21 +186,97 @@ projects. `5000` and the two empty strings were constant in all 4 samples (meani
 GATEs are declared on the CLUs like any remote CLU (`OBJECT:new(1, ip, id)`). Modules / virtual
 objects on a GATE: **unknown** (resolver error). Byte-identical for both GATEs in three .omp files.
 
-## USER.LUA layout (confirmed for one script)
+## USER.LUA layout (confirmed: one script, and three scripts with parameters — `real-117c.USER.LUA`)
+
+Every script is this block; the blocks are simply concatenated (so 6 blank lines between two scripts):
 
 ```
 <blank>
 <blank>
-function sss()            -- params rendering unknown: function f(a, b)?
+function nowy_skrypt(parametr,dd,bbb)   -- parameter names joined with "," (no space)
 <blank>
---BEGIN_INIT              -- content unknown (script-local variable init?)
+--ARG parametr="domyslna"     -- one per parameter: default as a Lua literal
+--ARG dd=1 {1-10}             -- NUMBER with RANGE restriction: " {min-max}"
+--ARG bbb=true
+--BEGIN_INIT
+\tif parametr == nil then     -- note the trailing space after "then"
+\t\tparametr = "domyslna"
+\tend                         -- ... same three lines per parameter
 --END_INIT
 <blank>
-\t<body line>             -- every body line TAB-prefixed, blank ones too ("\t"; real-x)
+\t<body line>                 -- every body line TAB-prefixed, blank ones too ("\t"; real-x)
 <blank>
 end
 <blank> x4
 ```
+
+Script calls (observed in scripts and event actions):
+
+| source | OM.LUA / USER.LUA |
+|---|---|
+| `CLU->s("x",3,false)` (same CLU) | `s("x", 3, false)` — arguments re-joined with `", "` |
+| `CLU->s()` (same CLU, 3 parameters) | `s(nil, nil, nil)` — one `nil` per parameter |
+| `CLU->s()` (no parameters) | `s(nil)` |
+| `CLU->s("x")` (fewer arguments than parameters) | `s("x", nil, nil)` — padded with `nil` |
+| `CLU_1->s()` (other CLU) | `CLUx:execute(0, "s(nil)")` |
+| `CLU_1->s("x", 2)` (other CLU) | `CLUx:execute(0, "s(\"x\", 2, nil)")` — same text, quotes escaped |
+| more arguments than parameters | resolver error |
+
+Method calls: OM passes only the given arguments (`Switch(0)` → `execute(11, 0)` for two parameters)
+and does **not** fill in defaults: `Switch()` on a one-parameter method becomes
+`DOU8889:execute(0, )` (observed) — broken Lua, so the resolver asks for at least the first argument.
+
+Arguments are copied as written (OM does not parse them: `s("x'x\"x""x3")` → `s("x'x\"x""x3", nil, nil)`).
+OM compiles scripts **line by line**: a call whose `)` is on a later line comes out broken
+(`s("xxx` ⏎ `x2", 2)` → `s("xxx, nil, nil)("xxx` ⏎ `x2", 2)`, observed), so the resolver refuses
+multi-line calls.
+
+## User variables (CLU "features" defined in OM) — observed (`real-117c.OM.LUA`, `real-vclu2.OM.LUA`)
+
+Plain global Lua variables. Persistent ones are stored by the storage object
+(`STO99999:execute(4, name)`), volatile ones get `execute(2, name)`.
+
+Between the IO block and `function toboolean`, in definition order, then registered at the very end
+of the file (after `add_event(0, OnInit)`):
+
+```
+-- NAME_IO ...            (last IO)
+<blank>
+cecha = "aas" -- string
+_type["cecha"] = "string"
+cecha_other = "s" -- other
+_type["cecha_other"] = "other"
+<blank>
+function toboolean(value)
+...
+CLU900000001:add_event(0, OnInit)
+STO99999:execute(2, "cecha")              -- 2 = volatile
+STO99999:execute(4, "cecha_persistent")   -- 4 = persistent
+```
+
+Types: string / other written verbatim in quotes; number and boolean unquoted
+(`aas = 4 -- number`, `aaab = false -- boolean`).
+
+## Object constructor = interface `className` — observed (`real-gate-modbus`, `real-vclu2`)
+
+A virtual object is declared with the `className` of its interface XML (`<object class="120"
+className="GATE" ...>`), default `OBJECT`: `MOD8301 = GATE:new(206, "MOD8301")` (ModbusServer on a
+GATE) and `HTT9478 = GATE:new(120, "HTT9478")` (HttpListener on a vCLU), while Timer v1 / Thermostat /
+Scheduler are `OBJECT:new`. Timer v2 is `GATE`, so a Timer needs its version when imported without
+one (the importer derives it from the constructor). A GATE never has TF-Bus modules.
+
+## Text values — observed
+
+Strings are written verbatim between double quotes, nothing escaped: the HttpListener default `\z`
+(two characters in the .omp) is `HTT9478:set(2, "\z")`. The value is the content of a Lua string and
+escapes are typed by the user (Grenton GATE HTTP manual: headers `'Month: April\r\n'`; `\z` = empty).
+The resolver therefore accepts escapes (`\"`, `\r\n`) and refuses a bare `"`, a real line break or a
+trailing single `\` (they would break the string).
+
+`get="false"` features of HttpRequest / HttpListener (QueryStringParams, RequestHeaders, RequestBody,
+ResponseHeaders, ResponseBody) hold Lua tables at run time: per the manual they are read in a script
+on the same GATE (`local resp = GATE->x->ResponseBody` → `HTT0001:get(10)`); reading them from another
+CLU is refused (a remote get returns text, not the table).
 
 - No scripts → **empty USER.LUA** (0 bytes; real modbus, confirmed).
 - Body lines: leading **and trailing** whitespace is dropped, then one TAB; blank lines become a

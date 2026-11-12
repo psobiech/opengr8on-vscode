@@ -33,6 +33,11 @@ export interface VirtualObject {
   removed?: boolean;
   /** interface object version (not in OM.LUA; from the .omp / YAML), to pick e.g. Thermostat v2 */
   version?: number;
+  /**
+   * Constructor class of the interface object (XML `className`): OM writes `<className>:new(class, id)`,
+   * e.g. GATE:new for HttpListener / ModbusServer / Timer v2 (observed). Undefined = OBJECT.
+   */
+  className?: string;
   features: FeatureInit;
   events: EventBinding[];
 }
@@ -72,10 +77,34 @@ export interface ModuleObject {
   ios: IoObject[];
 }
 
+/**
+ * Script parameter with the default used when the caller passes nil (observed OM 1.13: USER.LUA
+ * `--ARG dd=1 {1-10}` + `if dd == nil then dd = 1 end` in --BEGIN_INIT).
+ */
+export interface ScriptParam {
+  name: string;
+  type: "string" | "number" | "boolean";
+  default: string | number | boolean;
+  /** NUMBER range restriction [min, max] (`--ARG dd=1 {1-10}`) */
+  range?: [number, number];
+}
+
+/**
+ * CLU user feature ("variable"): a global Lua variable. Observed OM 1.13: `name = "aas" -- string`,
+ * `n = 4 -- number`, `b = false -- boolean` (+ `_type["name"] = "<type>"`) after the IOs, and
+ * `STO99999:execute(4, "name")` (persistent: stored) or `execute(2, ...)` (volatile) at the end.
+ */
+export interface UserVariable {
+  name: string;
+  type: "string" | "other" | "number" | "boolean";
+  /** string / other: text; number: number; boolean: true / false */
+  value: string | number | boolean;
+  persist: boolean;
+}
+
 export interface Script {
   name: string;
-  /** Parameter names (OM `Script.parameters`); unverified how OM renders them. */
-  params: string[];
+  params: ScriptParam[];
   /** Script body as stored in the .omp (`scripts/<CLU>/<name>.lua`). */
   source: string;
 }
@@ -106,6 +135,8 @@ export interface Clu {
   events: EventBinding[];
   /** Virtual objects, in OM order (declared after the remote CLUs). */
   objects?: VirtualObject[];
+  /** CLU user features ("variables"), in OM order */
+  variables?: UserVariable[];
   /** User actions on the CLU OnInit event: last in OnInit as `\t<action> -- CluOnInit`. */
   onInit?: string[];
   modules: ModuleObject[];

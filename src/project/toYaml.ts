@@ -104,12 +104,16 @@ export function cluToYaml(clu: Clu, registry: InterfaceRegistry, opts: ToYamlOpt
   const objects = new YAMLSeq();
   for (const o of clu.objects ?? []) {
     const cands = registry.allObjects().filter((x) => Number(x.class) === o.objectClass);
-    const pick = o.version !== undefined ? cands.find((x) => Number(x.version) === o.version) : cands.length === 1 ? cands[0] : undefined;
+    // without a version (import from OM.LUA) the constructor tells the versions apart when they differ
+    // (Timer v1 OBJECT:new, v2 GATE:new); the version is then written so the YAML is unambiguous
+    const byCtor = cands.filter((x) => x.className === (o.className ?? "OBJECT"));
+    const version = o.version ?? (cands.length > 1 && new Set(cands.map((x) => x.className)).size > 1 && byCtor.length === 1 ? Number(byCtor[0].version) : undefined);
+    const pick = version !== undefined ? cands.find((x) => Number(x.version) === version) : cands.length === 1 ? cands[0] : undefined;
     const sameName = cands.length > 0 && cands.every((x) => x.name === cands[0].name);
     const om = new YAMLMap();
     om.add(doc.createPair("id", o.id));
     om.add(doc.createPair("class", sameName ? cands[0].name : o.objectClass));
-    if (o.version !== undefined && cands.length > 1) om.add(doc.createPair("version", o.version));
+    if (version !== undefined && cands.length > 1) om.add(doc.createPair("version", version));
     om.add(doc.createPair("name", o.name));
     if (o.removed) om.add(doc.createPair("removed", true));
     const iface = pick ? { features: pick.features, methods: pick.methods, events: pick.events } : undefined;
@@ -122,7 +126,25 @@ export function cluToYaml(clu: Clu, registry: InterfaceRegistry, opts: ToYamlOpt
   root.add(doc.createPair("clu", cluMap));
   root.add(doc.createPair("modules", modules));
   if (objects.items.length) root.add(doc.createPair("objects", objects));
-  if (clu.scripts.length) root.add(doc.createPair("scripts", clu.scripts.map((s) => ({ name: s.name, params: s.params }))));
+  if (clu.variables?.length) {
+    const vars = new YAMLSeq();
+    for (const v of clu.variables) vars.add(flow(doc.createNode({ name: v.name, type: v.type, value: v.value, ...(v.persist ? { persist: true } : {}) }) as YAMLMap));
+    root.add(doc.createPair("variables", vars));
+  }
+  if (clu.scripts.length) {
+    const scripts = new YAMLSeq();
+    for (const s of clu.scripts) {
+      const m = new YAMLMap();
+      m.add(doc.createPair("name", s.name));
+      if (s.params.length) {
+        const ps = new YAMLSeq();
+        for (const p of s.params) ps.add(flow(doc.createNode({ name: p.name, type: p.type, default: p.default, ...(p.range ? { range: p.range } : {}) }) as YAMLMap));
+        m.add(doc.createPair("params", ps));
+      }
+      scripts.add(m);
+    }
+    root.add(doc.createPair("scripts", scripts));
+  }
   doc.contents = root;
   // quote index keys so they stay strings ("18"), and hex-looking strings stay strings
   return doc.toString({ lineWidth: 0, defaultKeyType: "PLAIN" });

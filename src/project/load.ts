@@ -1,6 +1,6 @@
 import { LineCounter, isMap, isPair, isScalar, isSeq, parseDocument, type Node, type Pair, type YAMLMap } from "yaml";
 import { english, type Tr } from "../i18n";
-import type { FeatureValue, RawLua } from "./model";
+import type { FeatureValue, RawLua, ScriptParam, UserVariable } from "./model";
 
 /**
  * Project loader (format 1, docs/PROJECT_FORMAT.md): YAML + script files → an ordered, still
@@ -77,10 +77,14 @@ export interface ModuleSource {
 
 export interface ScriptSource {
   name: string;
-  params: string[];
+  params: ScriptParam[];
   /** file relative to the project root */
   file: string;
   source: string;
+  at: Located;
+}
+
+export interface VariableSource extends UserVariable {
   at: Located;
 }
 
@@ -104,6 +108,8 @@ export interface CluSource {
   modules: ModuleSource[];
   /** virtual objects (Timer, Thermostat, ...) */
   objects: ObjectSource[];
+  /** CLU user features ("variables") */
+  variables: VariableSource[];
   scripts: ScriptSource[];
   at: Located;
 }
@@ -125,12 +131,14 @@ export const ROOT_FILE = "opengr8on.yaml";
 
 /** Keys allowed per mapping (format 1); also used by the editor completion. */
 export const KEYS = {
-  cluFile: ["clu", "modules", "objects", "scripts"],
+  cluFile: ["clu", "modules", "objects", "variables", "scripts"],
   clu: ["name", "serial", "id", "ip", "netmask", "gateway", "hw", "fw", "remotes", "ioOrder", "features", "events"],
   module: ["serial", "type", "comment", "ios"],
   io: ["id", "class", "channel", "name", "inactive", "features", "events"],
   object: ["id", "class", "version", "name", "removed", "features", "events"],
   script: ["name", "params"],
+  scriptParam: ["name", "type", "default", "range"],
+  variable: ["name", "type", "value", "persist"],
   hwfw: ["type", "version"],
 } as const;
 export const CLU_DIR = "clus";
@@ -362,6 +370,28 @@ function readRemotes(r: FileReader, node: unknown): RemoteSource[] | undefined {
   return out;
 }
 
+/** `{ name, type: string|number|boolean, default, range?: [min, max] }` of a script parameter. */
+function readScriptParam(r: FileReader, node: unknown, w: string): ScriptParam | undefined {
+  const map = r.map(node, w);
+  if (!map) return undefined;
+  r.pairs(map, KEYS.scriptParam, w);
+  const name = r.str(r.required(map, "name", w), `${w}.name`, NAME, "a Lua identifier");
+  const type = r.str(r.required(map, "type", w), `${w}.type`, /^(string|number|boolean)$/, "string, number or boolean");
+  const dnode = r.required(map, "default", w);
+  const raw = isScalar(dnode) ? dnode.value : undefined;
+  const ok = type === "string" ? typeof raw === "string" || typeof raw === "number" : type === "number" ? typeof raw === "number" : type === "boolean" ? typeof raw === "boolean" : false;
+  if (type && !ok) r.error((dnode as Node) ?? map, r.tr("{0}: expected a default of type {1}", `${w}.default`, type));
+  let range: [number, number] | undefined;
+  const rnode = r.get(map, "range");
+  if (rnode !== undefined) {
+    const v = isSeq(rnode) ? rnode.items.map((x) => (isScalar(x) ? x.value : undefined)) : [];
+    if (type !== "number" || v.length !== 2 || v.some((x) => typeof x !== "number") || (v[0] as number) > (v[1] as number)) r.error(rnode as Node, r.tr("{0}: expected [min, max] for a number parameter", `${w}.range`));
+    else range = [v[0] as number, v[1] as number];
+  }
+  if (!name || !type || !ok) return undefined;
+  return { name, type: type as ScriptParam["type"], default: type === "string" ? String(raw) : (raw as number | boolean), ...(range ? { range } : {}) };
+}
+
 async function readCluFile(files: ProjectFiles, file: string, diags: Diagnostic[], tr: Tr): Promise<CluSource | undefined> {
   const text = (await files.read(file)) ?? "";
   const r = new FileReader(file, diags, tr);
@@ -425,12 +455,32 @@ async function readCluFile(files: ProjectFiles, file: string, diags: Diagnostic[
     if (!map) continue;
     r.pairs(map, KEYS.script, `scripts[${i}]`);
     const sname = r.str(r.required(map, "name", `scripts[${i}]`), `scripts[${i}].name`, NAME, "a Lua identifier");
-    const params = (r.seq(r.get(map, "params"), `scripts[${i}].params`) ?? []).map((p) => r.str(p, `scripts[${i}].params[]`, NAME, "a Lua identifier"));
+    const params = (r.seq(r.get(map, "params"), `scripts[${i}].params`) ?? []).map((p, k) => readScriptParam(r, p, `scripts[${i}].params[${k}]`));
     if (!sname || !name || params.some((p) => p === undefined)) continue;
     const sfile = `${SCRIPT_DIR}/${name}/${sname}.lua`;
     const source = await files.read(sfile);
     if (source === undefined) r.error(r.get(map, "name") as Node, r.tr("script {0}: {1} not found", sname ?? "", sfile));
-    scripts.push({ name: sname, params: params as string[], file: sfile, source: source ?? "", at: r.at(map) });
+    scripts.push({ name: sname, params: params as ScriptParam[], file: sfile, source: source ?? "", at: r.at(map) });
+  }
+
+  const variables: VariableSource[] = [];
+  for (const [i, n] of (r.seq(r.get(root, "variables"), "variables") ?? []).entries()) {
+    const w = `variables[${i}]`;
+    const map = r.map(n, w);
+    if (!map) continue;
+    r.pairs(map, KEYS.variable, w);
+    const vname = r.str(r.required(map, "name", w), `${w}.name`, NAME, "a Lua identifier");
+    const vtype = r.str(r.required(map, "type", w), `${w}.type`, /^(string|other|number|boolean)$/, "string, other, number or boolean");
+    const vnode = r.required(map, "value", w);
+    const raw = isScalar(vnode) ? vnode.value : undefined;
+    const value =
+      vtype === "number" ? (typeof raw === "number" ? raw : undefined)
+      : vtype === "boolean" ? (typeof raw === "boolean" ? raw : undefined)
+      : raw !== null && raw !== undefined && typeof raw !== "object" ? String(raw) : undefined;
+    if (vtype && value === undefined) r.error((vnode as Node) ?? map, r.tr("{0}: expected a value of type {1}", `${w}.value`, vtype));
+    const pnode = r.get(map, "persist");
+    const persist = pnode === undefined ? false : r.bool(pnode, `${w}.persist`);
+    if (vname && vtype && value !== undefined) variables.push({ name: vname, type: vtype as UserVariable["type"], value, persist: persist ?? false, at: r.at(map) });
   }
 
   if (name === undefined || serial === undefined || id === undefined || ip === undefined || !hw || !fw) return undefined;
@@ -449,7 +499,7 @@ async function readCluFile(files: ProjectFiles, file: string, diags: Diagnostic[
     }
   }
   const order = ioOrder?.every((x) => x) ? (ioOrder as string[]) : undefined;
-  return { file, name, serial, id, ip, netmask, gateway, hw, fw, remotes, ioOrder: order, features, events, modules, objects, scripts, at: r.at(cluNode) };
+  return { file, name, serial, id, ip, netmask, gateway, hw, fw, remotes, ioOrder: order, features, events, modules, objects, variables, scripts, at: r.at(cluNode) };
 }
 
 function dup<T>(items: T[], key: (t: T) => string | number, report: (t: T, first: T) => void): void {

@@ -1,4 +1,4 @@
-# Project format — version 1 (frozen 2026-11-11; additions since: optional `clu.ioOrder`, `objects:` defined, GATE `clu.netmask` / `clu.gateway`)
+# Project format — version 1 (frozen 2026-11-11; additions since: optional `clu.ioOrder`, `objects:` defined, GATE `clu.netmask` / `clu.gateway`, `variables:`, script `params` as objects)
 
 A Grenton project as plain text in git: human-editable YAML + Lua, names instead of indexes.
 Generated `OM.LUA` / `USER.LUA` are build outputs (not committed). Changes to this format bump
@@ -90,9 +90,15 @@ objects:                    # virtual objects ("periphery"), in OM order
       Control: CLU_1->x520093698_AnalogOUT_01->Value
       PointValue: 20
 
+variables:                  # CLU user features ("variables"), optional
+  - { name: cecha, type: string, value: aas, persist: true }   # type: string | other | number | boolean
+  - { name: licznik, type: number, value: 4 }                   # persist: stored across restarts
 scripts:                    # order = order in USER.LUA
   - name: ELO               # body in scripts/<CLU name>/<name>.lua
-    params: []              # parameter names
+    params:                 # optional; a call without arguments passes nil → the default
+      - { name: txt, type: string, default: domyslna }
+      - { name: dd, type: number, default: 1, range: [1, 10] }
+      - { name: on, type: boolean, default: true }
 ```
 
 ## Rules

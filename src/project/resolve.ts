@@ -64,6 +64,8 @@ interface ObjectInfo {
   objectClass?: number;
   /** several interface versions and no `version` given */
   ambiguous?: string;
+  /** interface className (OBJECT / GATE); undefined when the versions disagree and none is set */
+  className?: string;
 }
 
 interface CluCtx {
@@ -74,6 +76,32 @@ interface CluCtx {
   byName: Map<string, IoTarget>;
   byId: Map<string, IoTarget>;
   objects: ObjectInfo[];
+}
+
+/**
+ * Text values are a Lua string's content: OM writes them verbatim between double quotes (observed
+ * "\\z"), the user types escapes himself ('Month: April\\r\\n', GATE HTTP manual). A bare quote or a
+ * real line break would end / break the string.
+ */
+function unsafeText(v: string): boolean {
+  if (/[\r\n]/.test(v)) return true;
+  for (let i = 0; i < v.length; i++) {
+    if (v[i] === "\\") i++;
+    else if (v[i] === '"') return true;
+  }
+  return /(^|[^\\])(\\\\)*\\$/.test(v); // a trailing single backslash escapes the closing quote
+}
+
+/**
+ * Script call as OM compiles it (observed OM 1.13): arguments re-joined with ", ", missing ones
+ * padded with nil (`s("x")` → `s("x", nil, nil)`; no arguments → one nil per parameter, `s(nil)`
+ * for a script without parameters). On another CLU the same text is wrapped in CLUx:execute(0, "...").
+ */
+function scriptCall(script: { name: string; params: { name: string }[] }, args: string[], tr: Tr = english): { lua: string } | { error: string } {
+  const n = script.params.length;
+  if (args.length === 0) return { lua: `${script.name}(${n ? script.params.map(() => "nil").join(", ") : "nil"})` };
+  if (args.length > n) return { error: tr("{0} takes {1} argument(s), got {2}", script.name, n, args.length) };
+  return { lua: `${script.name}(${[...args.map((x) => x.trim()), ...Array(n - args.length).fill("nil")].join(", ")})` };
 }
 
 /** tr: message translation (views pass vscode.l10n.t; see src/i18n.ts). */
@@ -87,8 +115,7 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
   // ---- interfaces per CLU / module / IO ----
   const ctx = new Map<string, CluCtx>();
   for (const c of project.clus) {
-    if (c.hw.type === 0x12 && (c.modules.length || c.objects.length))
-      err(c.at, tr("{0}: GATE with modules or virtual objects — their OM.LUA form on a GATE is not known yet", c.name));
+    if (c.hw.type === 0x12 && c.modules.length) err(c.at, tr("{0}: a GATE has no TF-Bus modules", c.name));
     if (c.hw.type === 0x12 && (!c.netmask || !c.gateway)) err(c.at, tr("{0}: a GATE needs clu.netmask and clu.gateway (Object Manager: project network settings)", c.name));
     if (c.hw.type !== 0x12 && (c.netmask || c.gateway)) err(c.at, tr("{0}: clu.netmask / clu.gateway are only used by GATEs (hw type 0x12)", c.name));
     const cluIface = registry.getCLU(c.hw.type, c.hw.version, c.fw.type, c.fw.version)?.interface;
@@ -123,6 +150,7 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
         iface: pick ? { features: pick.features, methods: pick.methods, events: pick.events } : undefined,
         objectClass: typeof o.objectClass === "number" ? o.objectClass : cands[0] ? Number(cands[0].class) : undefined,
         ambiguous: o.version === undefined && cands.length > 1 ? cands.map((x) => `v${Number(x.version)}`).join(", ") : undefined,
+        className: pick?.className ?? (new Set(cands.map((x) => x.className)).size === 1 ? cands[0]?.className : undefined),
       };
       const t = { io: { id: o.id }, iface: info.iface };
       byId.set(o.id, t);
@@ -165,6 +193,7 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
     const v = f.value;
     if (typeof v === "object") return true; // raw { lua } value: written verbatim
     const where = `${owner}: ${def.name}`;
+    if (typeof v === "string" && unsafeText(v)) return err(f.at, tr("{0}: a text value is written verbatim into a Lua string: write a quote as \\\" and a line break as \\n", where)) ?? false;
     if (!def.set && !allowReadOnly) return err(f.at, tr("{0} is read-only and cannot be set", where)) ?? false;
     if (def.type === "str" && typeof v !== "string") return err(f.at, tr("{0} expects text, got {1}", where, JSON.stringify(v))) ?? false;
     if (def.type === "num" && typeof v === "string") return err(f.at, tr("{0} expects a number, got \"{1}\"", where, v)) ?? false;
@@ -217,6 +246,8 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
       if (method.call !== "execute" && method.call !== "set") return err(a.at, tr("action \"{0}\": {1} is a \"{2}\" method; not supported", a.text, p.member, method.call));
       // OM passes the given arguments only (LEDRGB Switch(0) → execute(11, 0) for 2 params, real .omp)
       if (p.args.length > method.params.length) return err(a.at, tr("action \"{0}\": {1} takes at most {2} argument(s), got {3}", a.text, p.member, method.params.length, p.args.length));
+      // observed: Switch() (1 parameter) → OM writes DOU8889:execute(0, ) — broken Lua; refused instead
+      if (p.args.length === 0 && method.params.length > 0) return err(a.at, tr("action \"{0}\": pass at least the first argument of {1} (without arguments Object Manager writes \"execute(<n>, )\", which does not run)", a.text, p.member));
       // enum parameters (from the feature a set-method sets): name or number, written as the number
       for (let k = 0; k < p.args.length; k++) {
         const ef = paramEnumFeature(iface, method, k);
@@ -241,11 +272,12 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
         if (target.iface?.methods.some((m) => m.name === p.member)) return call(target.src.id, target.iface, target.src.id);
         return err(a.at, tr("action \"{0}\": no script or CLU method {1} on {2}", a.text, p.member, p.clu));
       }
-      if (p.args.length > 0) return err(a.at, tr("action \"{0}\": script calls with arguments are not supported yet (only the parameterless form name(nil) is observed)", a.text));
-      if (local) return `${p.member}(nil)`;
-      // remote: observed in a script (CLU_1->elo2() → CLUx:execute(0, "elo2(nil)")), same form here
+      const compiled = scriptCall(script, p.args, tr);
+      if ("error" in compiled) return err(a.at, `${tr("action \"{0}\"", a.text)}: ${compiled.error}`);
+      if (local) return compiled.lua;
+      // remote (observed in scripts): CLUx:execute(0, "s(\"x\", 1, nil)")
       if (!effectiveRemotes(self.src).some((r) => r.id === target.src.id)) return err(a.at, tr("action \"{0}\": {1} is not in {2}'s remotes", a.text, p.clu, self.src.name));
-      return `${target.src.id}:execute(0, "${luaString(`${p.member}(nil)`)}")`;
+      return `${target.src.id}:execute(0, "${luaString(compiled.lua)}")`;
     }
 
     const obj = target.byName.get(p.object) ?? target.byId.get(p.object);
@@ -299,6 +331,8 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
       }
       if (info.objectClass === undefined) err(o.at, tr("{0}: unknown object type {1}", owner, o.objectClass));
       if (o.removed && o.events.length) err(o.at, tr("{0}: removed objects get no events in OM.LUA", owner));
+      // the versions of e.g. Timer differ in constructor (v1 OBJECT:new, v2 GATE:new)
+      if (info.objectClass !== undefined && !info.className) err(o.at, tr("{0}: {1} has several interface versions ({2}); set version", owner, o.objectClass, info.ambiguous ?? "?"));
       const feats: FeatureInit = o.features.flatMap((f) => {
         const idx = featureIndex(f, info.iface?.features, owner);
         if (idx === undefined) return [];
@@ -317,6 +351,7 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
         objectClass: info.objectClass ?? 0,
         name: o.name,
         removed: o.removed || undefined,
+        ...(info.className && info.className !== "OBJECT" ? { className: info.className } : {}),
         features: feats,
         events: events(o.events, info.iface?.events, owner, self),
       };
@@ -388,18 +423,26 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
         }
         return wrap(`${objId}:set(${f.index}, ${expr})`);
       }
-      if (r.object === undefined && target.src.scripts.some((x) => x.name === r.member)) {
-        // observed: CLU_1->elo2() on another CLU → CLUx:execute(0, "elo2(nil)"); local: name(nil)
-        // (as in event actions); arguments: form not observed
+      // OM compiles scripts line by line: a call whose ")" is on a later line comes out broken
+      // (observed: nowy_skrypt("xxx<newline>x2", 2) → nowy_skrypt("xxx, nil, nil)("xxx ...)
+      if (r.kind === "call" && (r.args ?? "").includes("\n")) return err(at, tr("{0}(...): the call must end on the same line (Object Manager compiles scripts line by line and would generate broken code)", text));
+      const script = r.object === undefined ? target.src.scripts.find((x) => x.name === r.member) : undefined;
+      if (script) {
+        // observed: CLU->s("x", 1, false) → s("x", 1, false); CLU->s() → s(nil, nil, nil) (one nil per
+        // parameter, s(nil) without parameters); on another CLU CLUx:execute(0, "s(nil)")
         if (r.kind !== "call") return err(at, tr("{0}: a script can only be called ({0}())", text));
-        if ((r.args ?? "").trim()) return err(at, tr("{0}(...): script calls with arguments are not supported yet (OM.LUA form not observed)", text));
-        return wrap(`${r.member}(nil)`);
+        const args = (r.args ?? "").trim() ? splitArgs(r.args ?? "") : [];
+        const compiled = scriptCall(script, args, tr);
+        if ("error" in compiled) return err(at, `${text}: ${compiled.error}`);
+        return wrap(compiled.lua);
       }
       if (!iface) return err(at, tr("{0}: no interface XML for {1}; use {1}:get / :set / :execute", text, objId));
       if (r.kind === "read") {
         const f = iface.features.find((x) => x.name === r.member);
         if (!f) return err(at, tr("{0}: {1} has no feature {2} (known: {3})", text, objId, r.member, iface.features.map((x) => x.name).join(", ")));
-        if (!f.get) return err(at, tr("{0}: feature {1} cannot be read", text, r.member));
+        // get="false" features (HttpRequest / HttpListener ResponseBody, QueryStringParams, headers)
+        // hold Lua tables: readable in a script on the same CLU / GATE only (GATE HTTP manual)
+        if (!f.get && !local) return err(at, tr("{0}: feature {1} holds a table and can only be read by a script on {2} itself", text, r.member, r.clu));
         return wrap(`${objId}:get(${f.index})`);
       }
       const m = iface.methods.find((x) => x.name === r.member);
@@ -407,6 +450,7 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
       if (m.call !== "execute" && m.call !== "set") return err(at, tr("{0}: {1} is a \"{2}\" method; not supported", text, r.member, m.call));
       let args = (r.args ?? "").trim();
       if (splitArgs(args).length > m.params.length) return err(at, tr("{0}: {1} takes at most {2} argument(s)", text, r.member, m.params.length));
+      if (!args && m.params.length > 0) return err(at, tr("{0}(): pass at least the first argument of {1} (without arguments Object Manager writes \"execute(<n>, )\", which does not run)", text, r.member));
       // enum arguments by name (SetMode(Bistable)) → number; only replaced when the argument is
       // a name of that enum, so Lua expressions pass through unchanged
       if (args) {
@@ -437,8 +481,18 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
       return out.every((x) => x !== undefined) ? replaceArrows(src, refs, out as string[]) : src;
     };
 
-    if (c.scripts.length > 1) err(c.scripts[1].at, tr("{0}: more than one script per CLU is not supported yet (USER.LUA layout for several scripts unknown)", c.name));
-    for (const s of c.scripts) if (s.params.length) err(s.at, tr("script {0}: parameters are not supported yet (USER.LUA rendering unknown)", s.name));
+    // strings go into OM.LUA / USER.LUA verbatim (as OM writes them): quotes / line breaks not observed
+    const badText = (v: unknown) => typeof v === "string" && unsafeText(v);
+    for (const v of c.variables) if (badText(v.value)) err(v.at, tr("variable {0}: the value is written verbatim into a Lua string: write a quote as \\\" and a line break as \\n", v.name));
+    for (const s of c.scripts) for (const p of s.params) if (badText(p.default)) err(s.at, tr("script {0}: the default of {1} is written verbatim into a Lua string: write a quote as \\\" and a line break as \\n", s.name, p.name));
+    // variables: global Lua names, so they must not shadow objects, scripts or each other
+    const taken = new Set([c.id, ...self.byId.keys(), ...c.objects.map((o) => o.id), ...c.scripts.map((s) => s.name)]);
+    const seenVars = new Set<string>();
+    for (const v of c.variables) {
+      if (seenVars.has(v.name)) err(v.at, tr("variable {0} is defined twice", v.name));
+      else if (taken.has(v.name)) err(v.at, tr("variable {0}: the name is already used by an object or script", v.name));
+      seenVars.add(v.name);
+    }
     const scripts: Script[] = c.scripts.map((s) => ({ name: s.name, params: s.params, source: compileScript(s.source, s.file) }));
 
     clus.push({
@@ -455,6 +509,7 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
       ...(c.hw.type === 0x12 ? { netmask: c.netmask, gateway: c.gateway } : {}),
       events: cluEvents,
       ...(objects.length ? { objects } : {}),
+      ...(c.variables.length ? { variables: c.variables.map(({ name, type, value, persist }) => ({ name, type, value, persist })) } : {}),
       ...(onInit.length ? { onInit } : {}),
       modules,
       scripts,

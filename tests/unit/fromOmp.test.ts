@@ -31,6 +31,7 @@ const clu = (name: string, serial: string, ip: string, extra: Partial<OmpClu> = 
   modules: [],
   ios: [],
   periphery: [],
+  userFeatures: [],
   scripts: [],
   ...extra,
 });

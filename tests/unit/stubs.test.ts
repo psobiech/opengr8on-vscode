@@ -32,6 +32,19 @@ describe("luaStubs", () => {
     expect(text).toMatch(/---@type GrentonObject\nZWA1794 = nil/);
   });
 
+  it("OM notation: set-type methods (SetMode) and the CLU's scripts with optional parameters", () => {
+    const { clu } = parseOmLua(readFileSync(path.join(__dirname, "../fixtures/real-117c.OM.LUA"), "latin1"));
+    clu.scripts = [
+      { name: "test", params: [], source: "" },
+      { name: "nowy_skrypt", params: [{ name: "parametr", type: "string", default: "domyslna" }, { name: "dd", type: "number", default: 1, range: [1, 10] }, { name: "bbb", type: "boolean", default: true }], source: "" },
+    ];
+    const { text } = luaStubs([clu], loadInterfaceRegistry(dir));
+    expect(text).toMatch(/---@field nowy_skrypt fun\(parametr\?: string, dd\?: number, bbb\?: boolean\) # script on /);
+    expect(text).toMatch(/---@field test fun\(\) # script on .*no parameters/);
+    // panel buttons: SetMode is a set-type method
+    expect(text).toMatch(/---@field SetMode fun\(/);
+  });
+
   it("reports ids used for different classes on different CLUs", () => {
     const reg = loadInterfaceRegistry(dir);
     const base = { ip: "10.0.0.1", fwType: 3, fwVersion: 0x203, hwType: 0x13, hwVersion: 1, remotes: [], features: [], events: [], scripts: [] };

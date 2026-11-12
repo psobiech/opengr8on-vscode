@@ -5,7 +5,7 @@
  * unknown constructs are reported, never guessed.
  */
 import { HELPERS } from "../generator/omLua";
-import type { Clu, EventBinding, FeatureValue, IoObject, ModuleObject, RawLua, VirtualObject } from "./model";
+import type { Clu, EventBinding, FeatureValue, IoObject, ModuleObject, RawLua, UserVariable, VirtualObject } from "./model";
 
 /**
  * Value of an OnInit set line (text between "<id>:set(<i>, " and the end): a Lua literal, or a raw
@@ -16,7 +16,7 @@ export function parseSetValue(rest: string): FeatureValue | RawLua | undefined {
   if (withComment) return { lua: withComment[1], comment: withComment[2] };
   if (!rest.endsWith(")")) return undefined;
   const lit = rest.slice(0, -1);
-  const v = parseLuaLiteral(lit);
+  const v = parseOmLiteral(lit);
   if (v !== undefined) return v;
   return /^\{[^"{}]*\}$/.test(lit) ? { lua: lit } : undefined;
 }
@@ -38,6 +38,12 @@ export function parseLuaLiteral(src: string): FeatureValue | undefined {
   const m = /^"((?:[^"\\]|\\.)*)"$/.exec(src);
   if (!m) return undefined;
   return m[1].replace(/\\(.)/g, (_, c: string) => ({ n: "\n", r: "\r", t: "\t" })[c] ?? c);
+}
+
+/** Like parseLuaLiteral, but strings kept verbatim (OM writes them unescaped, see omString). */
+export function parseOmLiteral(src: string): FeatureValue | undefined {
+  const m = /^"([^"\r\n]*)"$/.exec(src);
+  return m ? m[1] : /^"/.test(src) ? undefined : parseLuaLiteral(src);
 }
 
 const hexNum = (h: string) => parseInt(h, 16);
@@ -88,9 +94,10 @@ export function parseOmLua(text: string): { clu: Clu; eol: "\r\n" | "\n" } {
   expect("");
   const objects: VirtualObject[] = [];
   while (lines[i] !== "") {
-    const m = match(/^(-- REMOVED )?([A-Z]{3}\d{4}) = OBJECT:new\((\d+), "\2"\)$/, "virtual object line");
+    // constructor = interface className: OBJECT, or GATE (ModbusServer, HttpListener, Timer v2)
+    const m = match(/^(-- REMOVED )?([A-Z]{3}\d{4}) = (OBJECT|GATE):new\((\d+), "\2"\)$/, "virtual object line");
     const name = match(new RegExp(`^-- NAME_PERIPHERY (.+)=${m[2]}$`), "-- NAME_PERIPHERY");
-    objects.push({ id: m[2], objectClass: Number(m[3]), name: name[1], removed: m[1] ? true : undefined, features: [], events: [] });
+    objects.push({ id: m[2], objectClass: Number(m[4]), name: name[1], removed: m[1] ? true : undefined, ...(m[3] !== "OBJECT" ? { className: m[3] } : {}), features: [], events: [] });
   }
   for (const l of ["", "-- MODULES"]) expect(l);
 
@@ -122,7 +129,18 @@ export function parseOmLua(text: string): { clu: Clu; eol: "\r\n" | "\n" } {
     ios.set(io.id, io);
     declOrder.push(io.id);
   }
-  for (const l of ["", ""]) expect(l);
+  // user variables between two blank lines: `name = "v" -- string` + `_type["name"] = "string"`
+  expect("");
+  const variables: UserVariable[] = [];
+  while (lines[i] !== "") {
+    const v = match(/^(\w+) = (.+) -- (string|other|number|boolean)$/, "variable line (name = value -- string|other|number|boolean)");
+    match(new RegExp(`^_type\\["${v[1]}"\\] = "${v[3]}"$`), "variable type line");
+    const value = parseOmLiteral(v[2]);
+    const want = v[3] === "number" ? "number" : v[3] === "boolean" ? "boolean" : "string";
+    if (typeof value !== want) fail(`variable ${v[1]}: value does not match its type ${v[3]}`);
+    variables.push({ name: v[1], type: v[3] as UserVariable["type"], value: value as string | number | boolean, persist: false });
+  }
+  expect("");
   for (const l of HELPERS.split("\n")) expect(l);
 
   const cluEvents: EventBinding[] = [];
@@ -163,6 +181,11 @@ export function parseOmLua(text: string): { clu: Clu; eol: "\r\n" | "\n" } {
   const onInit: string[] = [];
   while (lines[i] !== "end") onInit.push(match(/^\t(.+) -- CluOnInit$/, "CLU OnInit action (\\t<action> -- CluOnInit)")[1]);
   for (const l of ["end", "", `${id}:add_event(0, OnInit)`]) expect(l);
+  // variables registered in the storage object, in declaration order (2 volatile, 4 persistent)
+  for (const v of variables) {
+    const sto = match(new RegExp(`^STO99999:execute\\(([24]), "${v.name}"\\)$`), `STO99999:execute(2|4, "${v.name}")`);
+    v.persist = sto[1] === "4";
+  }
   if (i !== lines.length) fail("unexpected content after OnInit");
 
   const moduleOrder = modules.flatMap((m) => m.ios.map((io) => io.id));
@@ -181,6 +204,7 @@ export function parseOmLua(text: string): { clu: Clu; eol: "\r\n" | "\n" } {
     ...gateNet,
     events: cluEvents,
     ...(objects.length ? { objects } : {}),
+    ...(variables.length ? { variables } : {}),
     ...(onInit.length ? { onInit } : {}),
     modules,
     scripts: [],

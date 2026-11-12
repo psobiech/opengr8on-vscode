@@ -45,7 +45,22 @@ describe("loadProject", () => {
     expect(m.ios[0]).toMatchObject({ id: "DIM1186", objectClass: 5, channel: 0, name: "IO_DIM1186", inactive: false });
     expect(m.ios[0].features.map((f) => [f.key, f.value])).toEqual([["RampTime", 500], ["MinValue", 0.32]]);
     expect(m.ios[0].events[0].value.map((a) => a.kind)).toEqual(["om", "lua"]);
-    expect(c.scripts).toEqual([expect.objectContaining({ name: "ELO", params: [], file: "scripts/CLU_2/ELO.lua", source: "print(1)\n" })]);
+    expect(c.scripts).toEqual([
+      expect.objectContaining({
+        name: "ELO",
+        params: [
+          { name: "txt", type: "string", default: "domyslna" },
+          { name: "dd", type: "number", default: 1, range: [1, 10] },
+          { name: "on", type: "boolean", default: true },
+        ],
+        file: "scripts/CLU_2/ELO.lua",
+        source: "print(1)\n",
+      }),
+    ]);
+    expect(c.variables.map(({ name, type, value, persist }) => ({ name, type, value, persist }))).toEqual([
+      { name: "cecha", type: "string", value: "aas", persist: true },
+      { name: "licznik", type: "number", value: 4, persist: false },
+    ]);
     expect(c.ioOrder).toEqual(["DIM1186"]);
     expect(p.clus[0].remotes).toBeUndefined(); // default
     expect(p.clus[0].ioOrder).toBeUndefined();

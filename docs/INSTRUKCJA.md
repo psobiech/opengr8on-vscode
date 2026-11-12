@@ -252,11 +252,29 @@ Wszystkie polecenia są dostępne w palecie (Ctrl+Shift+P, wpisz `OpenGr8on`):
 Rozszerzenie generuje tylko konstrukcje, których postać w plikach Object Managera jest potwierdzona.
 Pozostałe są zgłaszane jako błąd zamiast zgadywania. Na razie:
 
-- jeden skrypt na CLU, bez parametrów (układ `USER.LUA` dla kilku skryptów nie jest jeszcze znany),
 - przypisanie cechy na **innym** CLU (`CLU_1->PRZYCISK->Mode = Bistable`) przyjmuje tylko stałą
   wartość (liczbę, tekst, nazwę) — jest wykonywane na tamtym CLU,
-- wywołanie skryptu z argumentami (`CLU->skrypt(1)`) — bez argumentów działa (`CLU_1->elo2()`),
-- na bramce (GATE) tylko jej własne cechy i zdarzenia — moduły i obiekty wirtualne na GATE (np.
-  zapytania HTTP, Modbus) nie są jeszcze obsługiwane.
+- odczyt cech-tabel obiektów HTTP (`ResponseBody`, `QueryStringParams`, nagłówki) z **innego** CLU —
+  zgodnie z instrukcją GATE HTTP czyta się je skryptem na tej samej bramce.
+
+Wartości tekstowe trafiają do pliku bez zmian, jako treść napisu Lua: cudzysłów zapisz jako `\"`,
+podział wiersza jako `\n` (np. nagłówki HTTP: `'Month: April\r\n'`). Wywołanie skryptu musi kończyć
+się w tej samej linii, a metoda z parametrami potrzebuje co najmniej pierwszego argumentu
+(`Switch(0)`, nie `Switch()` — Object Manager zapisałby wtedy niedziałające `execute(0, )`).
+
+Skrypty można wywoływać z dowolną liczbą argumentów, także na innym CLU — brakujące dostają `nil`,
+więc działa wartość domyślna parametru.
+
+Skrypty mogą mieć parametry z wartościami domyślnymi (i zakresem dla liczb), a CLU zmienne
+użytkownika — w `clus/<CLU>.yaml`:
+
+```yaml
+variables:
+  - { name: tryb_nocny, type: string, value: "nie", persist: true }
+scripts:
+  - name: podlewanie
+    params:
+      - { name: czas, type: number, default: 10, range: [1, 60] }
+```
 
 Szczegóły techniczne: [OM_LUA_FORMAT.md](OM_LUA_FORMAT.md), [PROJECT_FORMAT.md](PROJECT_FORMAT.md).

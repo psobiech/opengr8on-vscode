@@ -3,13 +3,13 @@
  * known (golden tests in tests/unit/generator.test.ts). Layout reverse-engineered from real OM
  * output; see docs/OM_LUA_FORMAT.md. Pure functions, no vscode imports.
  */
-import type { Clu, FeatureValue, IoObject, RawLua } from "../project/model";
+import type { Clu, ScriptParam, FeatureValue, IoObject, RawLua } from "../project/model";
 
 const isRaw = (v: FeatureValue | RawLua): v is RawLua => typeof v === "object" && v !== null;
 
 /** `<id>:set(<index>, <value>)` with a raw value's trailing comment. */
 function setLine(id: string, index: number, v: FeatureValue | RawLua): string {
-  return isRaw(v) ? `${id}:set(${index}, ${v.lua})${v.comment ? ` -- ${v.comment}` : ""}` : `${id}:set(${index}, ${luaLiteral(v)})`;
+  return isRaw(v) ? `${id}:set(${index}, ${v.lua})${v.comment ? ` -- ${v.comment}` : ""}` : `${id}:set(${index}, ${omLiteral(v)})`;
 }
 
 /** IOs with their module serial, in declaration order (clu.ioOrder, else module order). */
@@ -41,6 +41,21 @@ export function ipToHex(ip: string): string {
   return "0x" + parts.map((p) => p.toString(16).padStart(2, "0")).join("").toUpperCase();
 }
 
+/**
+ * A string as OM writes it: verbatim between double quotes, nothing escaped (observed: the
+ * HttpListener default `\z` comes out as "\z"). Quotes / line breaks inside are rejected by the
+ * resolver (their form is not observed).
+ */
+export function omString(v: string): string {
+  return `"${v}"`;
+}
+
+/** A feature / variable value as OM writes it (numbers and booleans as Lua, strings verbatim). */
+export function omLiteral(v: FeatureValue): string {
+  return typeof v === "string" ? omString(v) : luaLiteral(v);
+}
+
+/** A Lua literal with escapes, for our own req: commands (not OM output: see omLiteral). */
 export function luaLiteral(v: FeatureValue): string {
   if (typeof v === "boolean") return v ? "true" : "false";
   if (typeof v === "number") return String(v);
@@ -128,7 +143,9 @@ export function emitOmLua(clu: Clu, opts: EmitOptions = {}): string {
   // virtual objects ("periphery") between two blank lines (empty block = the two blanks of a plain file)
   push("");
   for (const o of clu.objects ?? []) {
-    push(`${o.removed ? "-- REMOVED " : ""}${o.id} = OBJECT:new(${o.objectClass}, "${o.id}")`, `-- NAME_PERIPHERY ${o.name}=${o.id}`);
+    // constructor = the interface className (observed: GATE:new for ModbusServer on a GATE and for
+    // HttpListener on a vCLU; OBJECT:new for Timer v1 / Thermostat / Scheduler)
+    push(`${o.removed ? "-- REMOVED " : ""}${o.id} = ${o.className ?? "OBJECT"}:new(${o.objectClass}, "${o.id}")`, `-- NAME_PERIPHERY ${o.name}=${o.id}`);
   }
   push("", "-- MODULES");
   for (const m of clu.modules) {
@@ -138,7 +155,10 @@ export function emitOmLua(clu: Clu, opts: EmitOptions = {}): string {
   push("", "-- IO_MODULES");
   const ios = orderedIos(clu);
   for (const { io, moduleSerial } of ios) push(...ioLines(io, moduleSerial));
-  push("", "");
+  // user variables between two blank lines (none: the two blanks of a plain file)
+  push("");
+  for (const v of clu.variables ?? []) push(`${v.name} = ${typeof v.value === "string" ? omString(v.value) : String(v.value)} -- ${v.type}`, `_type["${v.name}"] = "${v.type}"`);
+  push("");
   push(...HELPERS.split("\n")); // ends with "" -> blank line after getVar
 
   // The CLU's own events come first (observed in real-x: event 13 before any IO event).
@@ -170,24 +190,34 @@ export function emitOmLua(clu: Clu, opts: EmitOptions = {}): string {
     for (const [idx, v] of io.features) push(setLine(io.id, idx, v));
   }
   for (const o of clu.objects ?? []) for (const [idx, v] of o.features) push(`${o.removed ? "-- REMOVED " : ""}${setLine(o.id, idx, v)}`);
-  push("", ...(clu.onInit ?? []).map((a) => `\t${a} -- CluOnInit`), "end", "", `${clu.id}:add_event(0, OnInit)`, "");
+  push("", ...(clu.onInit ?? []).map((a) => `\t${a} -- CluOnInit`), "end", "", `${clu.id}:add_event(0, OnInit)`);
+  // variables are registered in the storage object: 2 = volatile, 4 = persistent
+  for (const v of clu.variables ?? []) push(`STO99999:execute(${v.persist ? 4 : 2}, "${v.name}")`);
+  push("");
 
   return out.join(opts.eol ?? "\r\n");
 }
 
+/** `--ARG` value / init literal of a script parameter default. */
+function paramLiteral(p: ScriptParam): string {
+  return p.type === "string" ? omString(String(p.default)) : String(p.default);
+}
+
 /**
- * USER.LUA: user scripts. Only single-script samples observed; multi-script separation, parameter
- * rendering and the BEGIN_INIT/END_INIT content are unverified (docs/OM_LUA_FORMAT.md).
+ * USER.LUA (observed OM 1.13, three scripts with and without parameters): each script is
+ * "\n\nfunction name(a,b)\n\n--ARG ...\n--BEGIN_INIT\n<nil defaults>\n--END_INIT\n\n<body>\n\nend\n\n\n\n\n",
+ * concatenated. Body lines: leading and trailing whitespace dropped, one tab added (blank ones too).
  */
 export function emitUserLua(clu: Clu, opts: EmitOptions = {}): string {
   if (clu.scripts.length === 0) return ""; // OM writes an empty USER.LUA (real modbus: 0 bytes)
-  const out: string[] = [""];
+  const out: string[] = [];
   for (const s of clu.scripts) {
-    // every body line: leading and trailing whitespace dropped, one tab added, blank lines too
-    // (real-x USER.LUA; .omp acceptance: indented / space-padded source lines come out trimmed)
     const body = s.source.replace(/\r\n/g, "\n").replace(/\n+$/, "").split("\n").map((l) => `\t${l.replace(/^[ \t]+|[ \t]+$/g, "")}`);
-    out.push("", `function ${s.name}(${s.params.join(", ")})`, "", "--BEGIN_INIT", "--END_INIT", "", ...body, "", "end", "", "");
+    const args = s.params.map((p) => `--ARG ${p.name}=${paramLiteral(p)}${p.range ? ` {${p.range[0]}-${p.range[1]}}` : ""}`);
+    // the trailing space after "then" is in OM's output
+    const init = s.params.flatMap((p) => [`\tif ${p.name} == nil then `, `\t\t${p.name} = ${paramLiteral(p)}`, "\tend"]);
+    out.push("", "", `function ${s.name}(${s.params.map((p) => p.name).join(",")})`, "", ...args, "--BEGIN_INIT", ...init, "--END_INIT", "", ...body, "", "end", "", "", "", "");
   }
-  out.push("", "", "");
+  out.push("");
   return out.join(opts.eol ?? "\r\n");
 }

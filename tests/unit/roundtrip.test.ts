@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { emitOmLua } from "../../src/generator/omLua";
 import { OmLuaParseError, parseLuaLiteral, parseOmLua } from "../../src/project/omLuaParse";
+import { parseUserLua } from "../../src/project/userLuaParse";
+import { emitUserLua } from "../../src/generator/omLua";
 
 const fixture = (name: string) => readFileSync(path.join(__dirname, "..", "fixtures", name), "latin1");
 
 // Byte-exact round trip on real (sanitized) OM output: every construct OM wrote must be modelled
 // and re-emitted identically.
-describe.each(["real-clu2.OM.LUA", "real-x.OM.LUA", "real-modbus.OM.LUA", "vclu.OM.LUA", "real-117.OM.LUA", "real-gate.OM.LUA"])("round trip %s", (name) => {
+describe.each(["real-clu2.OM.LUA", "real-x.OM.LUA", "real-modbus.OM.LUA", "vclu.OM.LUA", "real-117.OM.LUA", "real-gate.OM.LUA", "real-117c.OM.LUA", "real-gate-modbus.OM.LUA", "real-vclu2.OM.LUA"])("round trip %s", (name) => {
   it("emit(parse(x)) === x", () => {
     const text = fixture(name);
     const { clu, eol } = parseOmLua(text);
@@ -61,5 +63,59 @@ describe("GATE (real-gate, hw type 0x12)", () => {
     expect([clu.hwType, clu.id, clu.ip, clu.netmask, clu.gateway]).toEqual([0x12, "CLU900000006", "192.168.1.107", "255.255.255.0", "192.168.1.108"]);
     expect(clu.modules).toEqual([]);
     expect(() => emitOmLua({ ...clu, gateway: undefined })).toThrow("needs netmask and gateway");
+  });
+});
+
+describe("user variables, several scripts with parameters, GATE objects (real-117c, real-gate-modbus; OM 1.13)", () => {
+  it("models variables (persist from STO99999:execute 2/4)", () => {
+    const { clu } = parseOmLua(fixture("real-117c.OM.LUA"));
+    expect(clu.variables).toEqual([
+      { name: "cecha", type: "string", value: "aas", persist: false },
+      { name: "cecha_persistent", type: "string", value: "aa", persist: true },
+      { name: "cecha_other", type: "other", value: "s", persist: false },
+    ]);
+  });
+
+  it("USER.LUA: three scripts, parameters with defaults and range, byte for byte", () => {
+    const text = fixture("real-117c.USER.LUA");
+    const { scripts, eol } = parseUserLua(text);
+    expect(scripts.map((s) => [s.name, s.params])).toEqual([
+      ["test", []],
+      ["nowy_skrypt", [
+        { name: "parametr", type: "string", default: "domyslna" },
+        { name: "dd", type: "number", default: 1, range: [1, 10] },
+        { name: "bbb", type: "boolean", default: true },
+      ]],
+      ["aaaa", []],
+    ]);
+    const { clu } = parseOmLua(fixture("real-117c.OM.LUA"));
+    expect(emitUserLua({ ...clu, scripts }, { eol })).toBe(text);
+  });
+
+  it("GATE: its objects are GATE:new(class, id) with NAME_PERIPHERY and OnInit sets", () => {
+    const { clu } = parseOmLua(fixture("real-gate-modbus.OM.LUA"));
+    expect(clu.objects?.map((o) => [o.id, o.objectClass, o.name, o.features.length])).toEqual([["MOD8301", 206, "modbserv", 8]]);
+  });
+});
+
+describe("constructor from the interface className, text verbatim, calls to another CLU (real-vclu2)", () => {
+  it("HttpListener on a vCLU is GATE:new; its \\z defaults stay verbatim", () => {
+    const { clu } = parseOmLua(fixture("real-vclu2.OM.LUA"));
+    const o = clu.objects![0];
+    expect([o.id, o.objectClass, o.className]).toEqual(["HTT9478", 120, "GATE"]);
+    expect(o.features.find(([i]) => i === 2)?.[1]).toBe("\\z"); // two characters, as stored in the .omp
+    // number / boolean variables: unquoted (volatile: STO99999:execute(2, ...))
+    expect(clu.variables).toEqual([
+      { name: "aas", type: "number", value: 4, persist: false },
+      { name: "aaab", type: "boolean", value: false, persist: false },
+    ]);
+  });
+
+  it("USER.LUA: calls to a script on another CLU, missing arguments padded with nil", () => {
+    const text = fixture("real-vclu2.USER.LUA");
+    const { scripts, eol } = parseUserLua(text);
+    expect(scripts[0].source).toContain('CLU900000006:execute(0, "nowy_skrypt(\\"xxxx2\\", 2, nil)")');
+    const { clu } = parseOmLua(fixture("real-vclu2.OM.LUA"));
+    expect(emitUserLua({ ...clu, scripts }, { eol })).toBe(text);
   });
 });

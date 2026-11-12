@@ -71,6 +71,75 @@ describe("resolveProject", () => {
   const clu2 = (body: string) =>
     "clu: { name: CLU_2, serial: 100000012, ip: 10.0.0.12, hw: { type: 0x13, version: 1 }, fw: { type: 3, version: 0x203 } }\n" + body;
 
+  it("compiles script calls as OM does: arguments re-joined, nil per parameter, variables passed through", async () => {
+    const r = await resolve(
+      clu2(
+        [
+          "modules:",
+          "  - serial: 330000009",
+          '    type: "0x1a"',
+          '    comment: "02 02"',
+          "    ios:",
+          "      - id: DIM0001",
+          "        class: DIMM",
+          "        channel: 0",
+          "        events:",
+          "          OnSwitchOn:",
+          '            - CLU_2->ELO("ddd",3,false)',
+          "            - CLU_2->ELO()",
+          '            - CLU_2->ELO("x")',
+          '            - CLU_1->LAMP->SwitchOn(0, 1)',
+          "variables:",
+          "  - { name: cecha, type: string, value: aas, persist: true }",
+          'scripts: [ { name: ELO, params: [ { name: p, type: string, default: d }, { name: dd, type: number, default: 1, range: [1, 10] }, { name: b, type: boolean, default: true } ] } ]',
+        ].join("\n"),
+      ),
+    );
+    expect(r.diagnostics.map((d) => d.message)).toEqual([]);
+    const c = r.clus.find((x) => x.name === "CLU_2")!;
+    // observed: CLU->nowy_skrypt("ddd",3,false) → nowy_skrypt("ddd", 3, false); s() → s(nil, nil, nil)
+    expect(c.modules[0].ios[0].events[0].actions).toEqual(['ELO("ddd", 3, false)', "ELO(nil, nil, nil)", 'ELO("x", nil, nil)', expect.stringContaining("CLU100000011:execute(0, ")]);
+    expect(c.variables).toEqual([{ name: "cecha", type: "string", value: "aas", persist: true }]);
+    expect(c.scripts[0].params.map((p) => p.name)).toEqual(["p", "dd", "b"]);
+  });
+
+  it("text values are Lua string contents: escapes allowed, bare quotes / line breaks refused; table features readable locally only", async () => {
+    const yaml = (v: string) =>
+      clu2(['objects:', '  - { id: HTT0001, class: HttpListener, version: 2, name: L, features: { Path: "/x", ResponseBody: ' + v + " } }", "scripts: [ { name: T } ]"].join("\n"));
+    const run = async (v: string, src = "") => {
+      const { project, diagnostics } = await loadProject({ ...files(yaml(v)), read: async (p) => (p === "scripts/CLU_2/T.lua" ? src : (await files(yaml(v)).read(p))) });
+      expect(diagnostics).toEqual([]);
+      return resolveProject(project!, registry);
+    };
+    const ok = await run("'a\\\"b\\r\\n'", "local resp = CLU_2->L->ResponseBody\n");
+    expect(ok.diagnostics).toEqual([]);
+    const c = ok.clus.find((x) => x.name === "CLU_2")!;
+    expect(c.objects![0].features.find(([i]) => i === 8)?.[1]).toBe('a\\"b\\r\\n'); // verbatim, as OM writes it
+    expect(c.scripts[0].source).toBe("local resp = HTT0001:get(8)\n");
+    expect((await run("'a\"b'")).diagnostics.map((d) => d.message)).toEqual([expect.stringContaining("write a quote as")]);
+  });
+
+  it("a method with parameters called without arguments is refused (OM writes execute(0, ) then)", async () => {
+    const r = await resolve(clu2(["modules:", "  - serial: 330000009", '    type: "0x1a"', '    comment: "02 02"', "    ios:", "      - id: DIM0001", "        class: DIMM", "        channel: 0", "        events:", "          OnSwitchOn:", "            - CLU_1->LAMP->SwitchOn()"].join("\n")));
+    expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringContaining("pass at least the first argument of SwitchOn")]);
+  });
+
+  it("script calls in scripts: arguments copied as written (quotes too), multi-line calls refused", async () => {
+    const yaml = clu2('scripts: [ { name: ELO, params: [ { name: p, type: string, default: d }, { name: n, type: number, default: 1 } ] }, { name: T } ]');
+    const run = async (src: string) => {
+      const { project, diagnostics } = await loadProject({ ...files(yaml), read: async (p) => (p === "scripts/CLU_2/T.lua" ? src : (await files(yaml).read(p))) });
+      expect(diagnostics).toEqual([]);
+      return resolveProject(project!, registry);
+    };
+    // observed (OM 1.13): CLU->s("x'x\"x""x3") → s("x'x\"x""x3", nil)
+    const ok = await run('CLU_2->ELO("x\'x\\"x""x3")\n');
+    expect(ok.diagnostics).toEqual([]);
+    expect(ok.clus.find((c) => c.name === "CLU_2")!.scripts[1].source).toBe('ELO("x\'x\\"x""x3", nil)\n');
+    // observed: OM turns this into broken Lua ( ELO("xxx, nil)("xxx ... ) — refused instead
+    const bad = await run('CLU_2->ELO("xxx\nx2", 2)\n');
+    expect(bad.diagnostics.map((d) => [d.file, d.range.start.line, d.message])).toEqual([["scripts/CLU_2/T.lua", 0, expect.stringContaining("must end on the same line")]]);
+  });
+
   it("resolves names, local and remote actions, script calls and default names", async () => {
     const r = await resolve(
       clu2(
@@ -127,9 +196,9 @@ describe("resolveProject", () => {
           "            - CLU_9->X->Y(0)",
           "            - CLU_1->LAMP->Nope(0)",
           "            - CLU_1->ELO()",
-          "            - CLU_2->ELO(1)",
+          "            - CLU_2->ELO(1, 2)",
           "            - CLU_2->DIM0001->SwitchOn(1, 2, 3)",
-          "scripts: [ { name: ELO, params: [a] } ]",
+          "scripts: [ { name: ELO, params: [ { name: a, type: number, default: 1 } ] } ]",
         ].join("\n"),
       ),
     );
@@ -139,9 +208,8 @@ describe("resolveProject", () => {
       'action "CLU_9->X->Y(0)": no CLU named CLU_9 in this project',
       expect.stringMatching(/^action "CLU_1->LAMP->Nope\(0\)": DIM0020 has no method Nope/),
       'action "CLU_1->ELO()": no script or CLU method ELO on CLU_1',
-      'action "CLU_2->ELO(1)": script calls with arguments are not supported yet (only the parameterless form name(nil) is observed)',
+      'action "CLU_2->ELO(1, 2)": ELO takes 1 argument(s), got 2',
       'action "CLU_2->DIM0001->SwitchOn(1, 2, 3)": SwitchOn takes at most 2 argument(s), got 3',
-      "script ELO: parameters are not supported yet (USER.LUA rendering unknown)",
     ]);
   });
 });
@@ -302,7 +370,7 @@ describe("real-117: virtual objects, table references, CluOnInit, OM notation", 
       [`scripts/${clus[1].name}/elo2.lua`]: "",
     };
     for (const c of clus) files[`clus/${c.name}.yaml`] = cluToYaml(c, registry, { projectClus });
-    expect(files[`clus/${c117.name}.yaml`]).toMatch(/objects:\n  - id: TIM8908\n    class: Timer\n    name: t\n/);
+    expect(files[`clus/${c117.name}.yaml`]).toMatch(/objects:\n  - id: TIM8908\n    class: Timer\n    version: 1\n    name: t\n/);
     expect(files[`clus/${c117.name}.yaml`]).toMatch(/class: Thermostat\n    version: 2\n    name: hh\n    removed: true\n    features:\n      Source: CLU900000006->/);
     const { project, diagnostics } = await loadProject(mem(files));
     expect(diagnostics).toEqual([]);

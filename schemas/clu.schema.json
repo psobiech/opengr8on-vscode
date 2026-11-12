@@ -313,6 +313,45 @@
         }
       }
     },
+    "variables": {
+      "type": "array",
+      "description": "CLU user features (variables): global Lua variables",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "type",
+          "value"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "type": {
+            "enum": [
+              "string",
+              "other",
+              "number",
+              "boolean"
+            ]
+          },
+          "value": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ],
+            "description": "Initial value (number for type number, true/false for boolean)"
+          },
+          "persist": {
+            "type": "boolean",
+            "description": "Stored and kept across CLU restarts (STO99999:execute(4, ...)); default false: volatile"
+          }
+        }
+      }
+    },
     "scripts": {
       "type": "array",
       "items": {
@@ -329,9 +368,45 @@
           },
           "params": {
             "type": "array",
+            "description": "Script parameters; a call without arguments passes nil for each, which the default replaces",
             "items": {
-              "type": "string",
-              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              "type": "object",
+              "required": [
+                "name",
+                "type",
+                "default"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                },
+                "type": {
+                  "enum": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ]
+                },
+                "default": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ],
+                  "description": "Used when the caller passes nil (USER.LUA --ARG / --BEGIN_INIT)"
+                },
+                "range": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "description": "Number parameters: [min, max]"
+                }
+              }
             }
           }
         }

@@ -3,8 +3,8 @@
  * stay in OM's own grammar, so the normal loader + resolver compile them; the acceptance test
  * compares the result with the OM.LUA OM itself generated (diagnostics/ inside the .omp).
  */
-import type { InterfaceRegistry, OmpClu, OmpFeature, OmpProject } from "opengr8on-node/client";
-import type { Clu, FeatureInit, IoObject, ModuleObject, VirtualObject } from "./model";
+import type { InterfaceRegistry, OmpClu, OmpFeature, OmpProject, OmpScriptParameter } from "opengr8on-node/client";
+import type { Clu, FeatureInit, IoObject, ModuleObject, ScriptParam, UserVariable, VirtualObject } from "./model";
 import { cluToYaml } from "./toYaml";
 
 export interface ImportedProject {
@@ -49,6 +49,20 @@ export interface OmpImportOptions {
 
 /** Deleted in OM but still stored in the project (OM's trash). */
 export const inTrash = (c: OmpClu) => c.isRemoved === "true";
+
+/** OM script parameter → model (STRING / NUMBER / BOOLEAN, NUMBER RANGE); others → note. */
+function scriptParam(p: OmpScriptParameter, where: string, notes: string[]): ScriptParam[] {
+  const d = p.defaultValue ?? "";
+  if (p.paramType === "STRING") return [{ name: p.name, type: "string", default: d }];
+  if (p.paramType === "BOOLEAN") return [{ name: p.name, type: "boolean", default: d === "true" }];
+  if (p.paramType === "NUMBER" && Number.isFinite(Number(d))) {
+    const [lo, hi] = p.restrictionValues.map(Number);
+    const range: [number, number] | undefined = p.restrictionType === "RANGE" && Number.isFinite(lo) && Number.isFinite(hi) ? [lo, hi] : undefined;
+    return [{ name: p.name, type: "number", default: Number(d), ...(range ? { range } : {}) }];
+  }
+  notes.push(`${where}: parameter ${p.name} (${p.paramType}${p.restrictionType ? ` ${p.restrictionType}` : ""}) not imported (its USER.LUA form is not known yet)`);
+  return [];
+}
 
 export function ompCluModel(c: OmpClu, all: OmpClu[], options: OmpImportOptions = {}, network: OmpProject["network"] = {}): { clu: Clu; notes: string[] } {
   const notes: string[] = [];
@@ -104,6 +118,16 @@ export function ompCluModel(c: OmpClu, all: OmpClu[], options: OmpImportOptions 
     }),
     events: p.events.filter((e) => e.commands.length).map((e) => ({ index: e.index, actions: e.commands })),
   }));
+  const variables: UserVariable[] = c.userFeatures.flatMap((f): UserVariable[] => {
+    const d = f.defaultValue ?? "";
+    const persist = f.persist === "true";
+    if (f.paramType === "STRING") return [{ name: f.name, type: "string" as const, value: d, persist }];
+    if (f.paramType === "OTHER") return [{ name: f.name, type: "other" as const, value: d, persist }];
+    if (f.paramType === "NUMBER" && Number.isFinite(Number(d))) return [{ name: f.name, type: "number" as const, value: Number(d), persist }];
+    if (f.paramType === "BOOLEAN") return [{ name: f.name, type: "boolean" as const, value: d === "true", persist }];
+    notes.push(`${c.name}: variable ${f.name} of type ${f.paramType} not imported (its OM.LUA form is not known yet)`);
+    return [];
+  });
   const mods = [...modules.values()];
   const moduleOrder = mods.flatMap((m) => m.ios.map((io) => io.id));
   const clu: Clu = {
@@ -121,7 +145,8 @@ export function ompCluModel(c: OmpClu, all: OmpClu[], options: OmpImportOptions 
     events: c.events.filter((e) => e.commands.length).map((e) => ({ index: e.index, actions: e.commands })),
     modules: mods,
     ...(objects.length ? { objects } : {}),
-    scripts: c.scripts.map((s) => ({ name: s.name, params: s.parameters, source: (s.source ?? "").replace(/\r\n/g, "\n") })),
+    ...(variables.length ? { variables } : {}),
+    scripts: c.scripts.map((s) => ({ name: s.name, params: s.parameters.flatMap((p) => scriptParam(p, `${c.name}/${s.name}`, notes)), source: (s.source ?? "").replace(/\r\n/g, "\n") })),
   };
   if (clu.name !== c.name) notes.push(`CLU "${c.name}" renamed to ${clu.name} (file name)`);
   return { clu, notes };
