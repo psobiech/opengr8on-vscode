@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { l10n } from "vscode";
-import { cluDetails, cluObjectId, mergeDiscovery, mergeProject, reachable, type CluInfo, type ProjectDevice } from "../device/cluInfo";
+import { cluDetails, cluObjectId, markSeen, mergeDiscovery, mergeProject, reachable, type CluInfo, type ProjectDevice } from "../device/cluInfo";
 import type { ParsedFeature } from "opengr8on-node/client";
 import type { CluConfigView, IoView, ModuleView } from "../device/cluConfig";
 import type { FeatureRead } from "../device/liveValues";
@@ -28,7 +28,15 @@ export function ioReads(io: IoView): FeatureRead[] {
   return io.objectId ? io.features.filter((f) => f.get).map((f) => ({ id: io.objectId!, index: f.index })) : [];
 }
 
-/** Stable node id of an IO (also the LivePoller watch owner). */
+/** Features of every IO of a module (watched while its row is expanded). */
+export function moduleReads(module: ModuleView): FeatureRead[] {
+  return module.ios.flatMap(ioReads);
+}
+
+/** Stable node id of a module row (also the LivePoller watch owner). */
+export const moduleNodeId = (serial: number, module: ModuleView) => (module.kind ? `clu:${serial}:${module.kind}` : `clu:${serial}:mm:${module.serial}`);
+
+/** Stable node id of an IO. */
 export const ioNodeId = (serial: number, module: ModuleView, io: IoView) =>
   module.kind ? `clu:${serial}:${module.kind}:${io.objectId}` : `clu:${serial}:mm:${module.serial}:${io.objectName}:${io.channel}`;
 
@@ -39,15 +47,37 @@ export class DevicesTreeProvider implements vscode.TreeDataProvider<DeviceNode> 
   private readonly loaded = new Map<number, CluConfigView>();
   private readonly changed = new vscode.EventEmitter<DeviceNode | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
+  /** A module row's children are shown (it is expanded): subscribe its live values. */
+  onModuleShown: ((serial: number, module: ModuleView) => void) | undefined;
 
   constructor(
     private readonly loadConfig?: ConfigLoader,
     private readonly live?: LiveValues,
   ) {}
 
-  /** Re-renders (new live values). */
+  /**
+   * Min gap between live-value re-renders. VS Code debounces onDidChangeTreeData (200 ms, restarted
+   * by every event): pushes arriving faster than that (several objects, a running Timer) would
+   * postpone the re-render forever, so live updates are throttled to one per REFRESH_MS.
+   */
+  static readonly REFRESH_MS = 300;
+  private refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  private refreshPending = false;
+
+  /** Re-renders (new live values), at most once per REFRESH_MS; the last change always shows. */
   refresh(): void {
+    if (this.refreshTimer) {
+      this.refreshPending = true;
+      return;
+    }
     this.changed.fire(undefined);
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = undefined;
+      if (this.refreshPending) {
+        this.refreshPending = false;
+        this.refresh();
+      }
+    }, DevicesTreeProvider.REFRESH_MS);
   }
 
   get all(): readonly CluInfo[] {
@@ -85,6 +115,36 @@ export class DevicesTreeProvider implements vscode.TreeDataProvider<DeviceNode> 
     this.changed.fire(undefined);
   }
 
+  /** lastSeen changes below this age refresh the view only when something else changed */
+  static readonly SEEN_REFRESH_MS = 10_000;
+
+  /**
+   * The CLU answered (any request or push): online, lastSeen, MAC if learned. Refreshes the view
+   * only when something visible changed (pushes arrive every second). Returns true when the entry
+   * changed in a way worth remembering (came online, new MAC / address).
+   */
+  seen(serial: number, fields: { mac?: string | null; address?: string } = {}, now = new Date()): boolean {
+    const i = this.clus.findIndex((c) => c.serial === serial);
+    if (i < 0) return false;
+    const prev = this.clus[i];
+    const { clu, flipped } = markSeen(prev, now, fields);
+    if (fields.address && !prev.inProject) clu.address = fields.address;
+    this.clus[i] = clu;
+    const notable = flipped || clu.mac !== prev.mac || clu.address !== prev.address;
+    if (notable || !prev.lastSeen) this.changed.fire(undefined);
+    else if (now.getTime() - prev.lastSeen.getTime() >= DevicesTreeProvider.SEEN_REFRESH_MS) this.refresh();
+    return notable;
+  }
+
+  /** The CLU stopped answering (check alive without answer, pushes and re-register failed). */
+  lost(serial: number): boolean {
+    const i = this.clus.findIndex((c) => c.serial === serial);
+    if (i < 0 || !this.clus[i].online) return false;
+    this.clus[i] = { ...this.clus[i], online: false };
+    this.changed.fire(undefined);
+    return true;
+  }
+
   /** Forgets the cached CONFIG.JSON (after refresh modules, key change, ...); reloaded on expand. */
   invalidate(serial: number): void {
     this.configs.delete(serial);
@@ -111,6 +171,7 @@ export class DevicesTreeProvider implements vscode.TreeDataProvider<DeviceNode> 
       p = this.loadConfig!(serial).then((v) => {
         const first = !this.loaded.has(serial);
         this.loaded.set(serial, v);
+        if (v.mac) this.seen(serial, { mac: v.mac }); // CONFIG.JSON came from the CLU (project views have no mac)
         if (first) this.changed.fire(undefined); // CLU label gains type + fw
         return v;
       });
@@ -140,6 +201,8 @@ export class DevicesTreeProvider implements vscode.TreeDataProvider<DeviceNode> 
           return [{ kind: "message", text: (e as Error).message, error: true }];
         }
       case "module":
+        // asked only for expanded rows, incl. ones VS Code restores expanded (no expand event then)
+        this.onModuleShown?.(node.serial, node.module);
         return node.module.ios.map((io) => ({ kind: "io", serial: node.serial, module: node.module, io }));
       case "io": {
         const features: DeviceNode[] = node.io.features
@@ -182,7 +245,7 @@ export class DevicesTreeProvider implements vscode.TreeDataProvider<DeviceNode> 
       case "module": {
         const m = node.module;
         const item = new vscode.TreeItem(m.name, m.ios.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-        item.id = m.kind ? `clu:${node.serial}:${m.kind}` : `clu:${node.serial}:mm:${m.serial}`;
+        item.id = moduleNodeId(node.serial, m);
         // like OM: what is on the module (its objects' names), not the internal mm_<serial> id
         const named = m.ios.filter((io) => io.name).map((io) => io.name!);
         const status = m.status && m.status !== "OK" ? ` · ${m.status}` : "";
@@ -249,7 +312,7 @@ export class DevicesTreeProvider implements vscode.TreeDataProvider<DeviceNode> 
         item.id = `clu:${clu.serial}`;
         const type = cfg ? ` · ${cfg.typeName ?? l10n.t("unknown type")} ${cfg.fwVer}` : clu.gate ? " · GATE" : "";
         const where = `${clu.address ?? ""}${clu.name ? ` · ${cluObjectId(clu)}` : ""}`;
-        item.description = clu.online || (clu.inProject && !clu.lastSeen) ? `${where}${type}` : l10n.t("{0} (not seen in the last discovery)", where);
+        item.description = clu.online || !clu.lastSeen ? `${where}${type}` : l10n.t("{0} (offline, last seen {1})", where, clu.lastSeen.toLocaleString());
         item.tooltip = [clu.name, ...cluDetails(clu, l10n.t).map(([l, v]) => `${l}: ${v}`)].filter(Boolean).join("\n");
         item.iconPath = new vscode.ThemeIcon(reachable(clu) ? (clu.gate ? "server" : "circuit-board") : "debug-disconnect");
         item.contextValue = reachable(clu) ? "clu" : "clu.offline";

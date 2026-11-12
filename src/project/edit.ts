@@ -25,6 +25,28 @@ export function addScriptToCluYaml(text: string, name: string): string {
   return doc.toString({ lineWidth: 0 });
 }
 
+/**
+ * Appends a virtual object to the top-level `objects:` list of a clus/<CLU>.yaml (creating it):
+ * `- { id, class, version?, name }`. The id must not be taken (caller allocates it, see allocateId).
+ */
+export function addObjectToCluYaml(text: string, o: { id: string; className: string; version?: number; name: string }): string {
+  if (!LUA_IDENTIFIER.test(o.name)) throw new Error(`"${o.name}" is not a valid object name (letters, digits, _; not starting with a digit)`);
+  const doc = parseDocument(text);
+  if (doc.errors.length) throw new Error(`the CLU file has YAML errors: ${doc.errors[0].message.split("\n")[0]}`);
+  if (!isMap(doc.contents)) throw new Error("the CLU file is not a mapping");
+  let objects = doc.get("objects", true);
+  if (objects === undefined || objects === null || (!isSeq(objects) && (objects as { value?: unknown }).value === null)) {
+    objects = new YAMLSeq();
+    doc.set("objects", objects);
+  }
+  if (!isSeq(objects)) throw new Error("objects: is not a list");
+  if (objects.items.some((x) => isMap(x) && (x.get("id") === o.id || x.get("name") === o.name))) throw new Error(`object ${o.name} (${o.id}) already exists`);
+  const entry = doc.createNode({ id: o.id, class: o.className, ...(o.version !== undefined ? { version: o.version } : {}), name: o.name });
+  if (objects.flow) entry.flow = true;
+  objects.add(entry);
+  return doc.toString({ lineWidth: 0 });
+}
+
 /** Initial content of a new script. */
 export const scriptTemplate = (clu: string, name: string) =>
   `-- ${name}: skrypt CLU ${clu}\n-- Obiekty: ${clu}->NAZWA->Cecha / ${clu}->NAZWA->Metoda(...)\n\n`;

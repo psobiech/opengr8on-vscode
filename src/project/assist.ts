@@ -52,7 +52,7 @@ export function buildIndex(clus: Clu[], registry: InterfaceRegistry): ProjectInd
       }
     }
     for (const v of clu.objects ?? []) {
-      const o = objectInterface(registry, v.objectClass, v.version);
+      const o = objectInterface(registry, v.objectClass, v.version, clu);
       if (v.removed) {
         // not a completion / action target, but its features are still edited in the YAML
         byIdExtra.push({ name: v.name, id: v.id, kind: "io", typeName: o?.name, iface: o?.iface, detail: `${v.id} (removed)` });
@@ -333,7 +333,7 @@ export function keyItems(clu: CluIndex, text: string, path: Array<string | numbe
 
 export interface YamlContext {
   /** what is being typed */
-  kind: "featureKey" | "featureValue" | "eventKey" | "action" | "structureKey";
+  kind: "featureKey" | "featureValue" | "eventKey" | "action" | "structureKey" | "classValue" | "versionValue";
   owner: "clu" | "io" | "object" | "none";
   /** object id (io / object) */
   id?: string;
@@ -431,6 +431,17 @@ export function yamlContext(text: string, offset: number): YamlContext | undefin
     const o = owner(1);
     return o ? { kind: "featureValue", ...o, feature: valueMatch[1].replace(/["']/g, ""), existing: [] } : undefined;
   }
+  // `class:` / `version:` of a virtual object (objects: list item, block or "- class:" style)
+  const itemKey = /^\s*(?:-\s+)?(class|version)\s*:\s*([^#,{}]*)$/.exec(curLine)?.[1];
+  if (itemKey) {
+    const itemLine = curIsItem ? cur : parent?.item ? parent.line : undefined;
+    const itemIndent = curIsItem ? indentOf(curLine) : parent?.indent;
+    const list = curIsItem ? parent?.key : ancestors.find((x, k) => k > 0 && !x.item && x.indent < (parent?.indent ?? 0))?.key;
+    if (itemLine !== undefined && itemIndent !== undefined && list === "objects" && (curIsItem ? !parent?.item : true)) {
+      const objectClass = itemKey === "version" ? itemValue(itemLine, itemIndent, "class") ?? /class:\s*([^,}\s]+)/.exec(all[itemLine])?.[1] : undefined;
+      return { kind: itemKey === "class" ? "classValue" : "versionValue", owner: "object", objectClass, existing: [] };
+    }
+  }
   if (valueMatch && !curIsItem && valueMatch[2].trim() !== "") return undefined; // other values: no suggestions
   if (parent?.key === "features" || parent?.key === "events") {
     if (curIsItem) return undefined;
@@ -474,6 +485,33 @@ export function yamlCompletion(
     if (/^\s*-\s+lua\s*:/.test(linePrefix)) return { items: [], replaceLength: 0 };
     const typed = /^\s*-\s+["']?([^"'#]*)$/.exec(linePrefix)?.[1] ?? "";
     return actionItems(index, typed);
+  }
+  if (ctx.kind === "classValue" || ctx.kind === "versionValue") {
+    const typed = /:\s*(\S*)$/.exec(linePrefix)?.[1] ?? "";
+    if (!registry) return { items: [], replaceLength: typed.length };
+    // triggered by ":" itself: the value needs its space
+    const sp = linePrefix.endsWith(":") ? " " : "";
+    const all = registry.allObjects();
+    if (ctx.kind === "versionValue") {
+      const cls = ctx.objectClass;
+      const versions = all.filter((o) => (cls && /^\d+$/.test(cls) ? Number(o.class) === Number(cls) : o.name === cls));
+      const items = versions.map((o) => ({ label: String(Number(o.version)), insert: sp + String(Number(o.version)), detail: `${o.name}${o.className && o.className !== "OBJECT" ? ` (${o.className})` : ""}`, sort: String(Number(o.version)).padStart(4, "0"), kind: "feature" as const }));
+      return { items, replaceLength: typed.length };
+    }
+    // the object types this CLU's interface lists, else every known one
+    const c = clu?.clu;
+    const supported = c ? registry.getCLU(c.hwType, c.hwVersion, c.fwType, c.fwVersion)?.objects : undefined;
+    const pool = supported ? all.filter((o) => supported.some((s) => s.name === o.name && Number(s.version) === Number(o.version))) : all;
+    const byName = new Map<string, typeof pool>();
+    for (const o of pool) byName.set(o.name, [...(byName.get(o.name) ?? []), o]);
+    const items = [...byName].map(([name, os]) => ({
+      label: name,
+      insert: sp + name,
+      detail: `class ${os[0].class}, version ${os.map((o) => Number(o.version)).join(" / ")}`,
+      sort: name,
+      kind: "feature" as const,
+    }));
+    return { items, replaceLength: typed.length };
   }
   if (ctx.kind === "structureKey") {
     const items = KEYS[ctx.mapping!]

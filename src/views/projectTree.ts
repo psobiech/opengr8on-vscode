@@ -1,3 +1,4 @@
+import { GATE_HW_TYPE } from "../generator/omLua";
 import * as vscode from "vscode";
 import { l10n } from "vscode";
 import type { CluSource, Located, ObjectSource, ProjectSource } from "../project/load";
@@ -61,7 +62,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node> {
     if (node.kind === "clu") {
       const c = node.clu;
       const groups: Node[] = [{ kind: "group", clu: c, group: "ios", count: c.modules.reduce((n, m) => n + m.ios.length, 0) }];
-      if (c.objects.length) groups.push({ kind: "group", clu: c, group: "objects", count: c.objects.length });
+      groups.push({ kind: "group", clu: c, group: "objects", count: c.objects.length }); // always: new objects go here
       groups.push({ kind: "group", clu: c, group: "scripts", count: c.scripts.length }); // always: new scripts go here
       return groups;
     }
@@ -92,7 +93,8 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node> {
         const errs = this.errors.get(c.file) ?? 0;
         item.description = `${c.ip}${errs ? ` · ${l10n.t("{0} problem(s)", errs)}` : ""}`;
         item.tooltip = `${c.name} · ${c.id} · ${c.ip}`;
-        item.iconPath = new vscode.ThemeIcon(errs ? "error" : "circuit-board");
+        // same icons as the Devices view: GATE (hw type 0x12) a server, CLU a circuit board
+        item.iconPath = new vscode.ThemeIcon(errs ? "error" : c.hw.type === GATE_HW_TYPE ? "server" : "circuit-board");
         item.contextValue = "projectClu";
         item.command = this.open(c.at);
         return item;

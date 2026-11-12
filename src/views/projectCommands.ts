@@ -12,7 +12,8 @@ import { parseOmLua } from "../project/omLuaParse";
 import { skeletonFromConfig } from "../project/skeleton";
 import { cluToYaml } from "../project/toYaml";
 import { buildIndex } from "../project/assist";
-import { LUA_IDENTIFIER, addScriptToCluYaml, removeFromCluYaml, scriptTemplate } from "../project/edit";
+import { LUA_IDENTIFIER, addObjectToCluYaml, addScriptToCluYaml, removeFromCluYaml, scriptTemplate } from "../project/edit";
+import { allocateId } from "../project/skeleton";
 import { findUsages } from "../project/remove";
 import { friendlyAction } from "../project/friendly";
 import { parseUserLua } from "../project/userLuaParse";
@@ -155,6 +156,61 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
         const end = doc.document.lineCount - 1;
         doc.selection = new vscode.Selection(end, 0, end, 0);
         deps.log.appendLine(`new script ${target.name}/${name}`);
+      } catch (e) {
+        void vscode.window.showErrorMessage(`OpenGr8on: ${(e as Error).message}`);
+      }
+    }),
+
+    vscode.commands.registerCommand("opengr8on.newObject", async (node?: { clu?: { name: string } }) => {
+      const watcher = await deps.project();
+      if (!watcher?.current) {
+        void vscode.window.showErrorMessage(l10n.t("OpenGr8on: no project loaded."));
+        return;
+      }
+      let clu = node?.clu ? watcher.current.clus.find((c) => c.name === node.clu!.name) : undefined;
+      if (!clu) {
+        const pick = await vscode.window.showQuickPick(watcher.current.clus.map((c) => ({ label: c.name, c })), { title: l10n.t("OpenGr8on: new virtual object on which CLU?") });
+        if (!pick) return;
+        clu = pick.c;
+      }
+      const target = clu;
+      const registry = deps.registry();
+      // the object types this CLU's interface lists (name + version), else every known one
+      const all = registry.allObjects();
+      const supported = registry.getCLU(target.hw.type, target.hw.version, target.fw.type, target.fw.version)?.objects;
+      const types = (supported ? all.filter((o) => supported.some((s) => s.name === o.name && Number(s.version) === Number(o.version))) : all)
+        .filter((o, i, list) => list.findIndex((x) => x.name === o.name && x.version === o.version) === i)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      if (types.length === 0) {
+        void vscode.window.showErrorMessage(l10n.t("OpenGr8on: no virtual object types known for {0}.", target.name));
+        return;
+      }
+      const type = await vscode.window.showQuickPick(
+        types.map((o) => ({ label: o.name, description: l10n.t("class {0}, version {1}", o.class, o.version), o })),
+        { title: l10n.t("New virtual object on {0}", target.name), matchOnDescription: true },
+      );
+      if (!type) return;
+      const names = new Set([...target.objects.map((o) => o.name), ...target.modules.flatMap((m) => m.ios.map((io) => io.name).filter((n): n is string => !!n))]);
+      const name = await vscode.window.showInputBox({
+        title: l10n.t("New {0} on {1}", type.o.name, target.name),
+        prompt: l10n.t("Object name (NAME_PERIPHERY): letters, digits, _"),
+        validateInput: (v) => (!LUA_IDENTIFIER.test(v) ? l10n.t("letters, digits and _; not starting with a digit") : names.has(v) ? l10n.t("{0} already exists on {1}", v, target.name) : undefined),
+      });
+      if (!name) return;
+      try {
+        const yamlUri = vscode.Uri.joinPath(watcher.root, ...target.file.split("/"));
+        if (vscode.workspace.textDocuments.some((d) => d.isDirty && d.uri.toString() === yamlUri.toString())) throw new Error(l10n.t("save {0} first", target.file));
+        const taken = new Set([target.id, ...target.objects.map((o) => o.id), ...target.modules.flatMap((m) => m.ios.map((io) => io.id))]);
+        const id = allocateId(type.o.name, taken);
+        // version only when the class has several interface versions (Timer v1 / GATE Timer v2, ...)
+        const versions = all.filter((o) => o.class === type.o.class).length;
+        const yaml = new TextDecoder().decode(await vscode.workspace.fs.readFile(yamlUri));
+        const next = addObjectToCluYaml(yaml, { id, className: type.o.name, version: versions > 1 ? Number(type.o.version) : undefined, name });
+        await vscode.workspace.fs.writeFile(yamlUri, enc(next));
+        await watcher.reload();
+        const line = next.split(/\r?\n/).findIndex((l) => l.includes(id));
+        await vscode.window.showTextDocument(yamlUri, { selection: line >= 0 ? new vscode.Range(line, 0, line, 0) : undefined });
+        deps.log.appendLine(`new virtual object ${target.name}/${name} (${type.o.name} v${type.o.version}, ${id})`);
       } catch (e) {
         void vscode.window.showErrorMessage(`OpenGr8on: ${(e as Error).message}`);
       }

@@ -7,6 +7,9 @@ import { discoverClus, interfaceChoices, pickInterface, type LocalInterface } fr
 import { reachable, rememberClus, restoreClus, toCluInfo, type CluInfo } from "./device/cluInfo";
 import { projectCluView } from "./device/projectView";
 import { PushReceiver } from "./device/pushReceiver";
+import { macFromArp } from "./device/arp";
+import { AlivePoller } from "./device/alivePoller";
+import { GATE_HW_TYPE } from "./generator/omLua";
 import { KeyStore, parseKeysFile, pinToPrivateKey } from "./device/keyStore";
 import { INTERFACES_DIR, loadInterfaceRegistry } from "./interfaces/registry";
 import { CLUFiles } from "opengr8on-node/client";
@@ -15,7 +18,7 @@ import { LivePoller } from "./device/liveValues";
 import { parseOmObjects } from "./project/omLuaObjects";
 import { CluRunner } from "./device/cluRunner";
 import { registerCluCommands } from "./views/cluCommands";
-import { DevicesTreeProvider, ioNodeId, ioReads, type DeviceNode } from "./views/devicesTree";
+import { DevicesTreeProvider, moduleNodeId, moduleReads, type DeviceNode } from "./views/devicesTree";
 import { LogTerminals } from "./views/logTerminal";
 import { registerProjectCommands } from "./views/projectCommands";
 import { ProjectWatcher, findProjectRoot } from "./views/projectWatcher";
@@ -111,6 +114,48 @@ export function activate(context: vscode.ExtensionContext): void {
     return view;
   }, live);
   devices.restore(restoreClus(context.workspaceState.get(REMEMBERED_KEY)));
+  const remember = () => void context.workspaceState.update(REMEMBERED_KEY, rememberClus(devices.all));
+  void (async () => {
+    // restored CLUs: show which key we hold
+    for (const c of devices.all) if (!c.keySource) devices.patch(c.serial, { keySource: (await keys.cipherKeyFor(c.serial, projectScope())).source });
+  })().catch((e) => log.appendLine(`keys: ${(e as Error).message}`));
+
+  // Every answer (check alive, req:, TFTP, pushes) keeps online / lastSeen / MAC current.
+  const arpTried = new Set<number>();
+  const seen = (serial: number) => {
+    if (devices.seen(serial)) remember();
+    const clu = devices.all.find((c) => c.serial === serial);
+    if (!clu?.mac && clu?.address && !arpTried.has(serial)) {
+      arpTried.add(serial);
+      void macFromArp(clu.address).then((mac) => {
+        if (mac && devices.seen(serial, { mac })) {
+          log.appendLine(`CLU${serial}: MAC ${mac} (ARP)`);
+          remember();
+        }
+      });
+    }
+  };
+  const lost = (serial: number) => {
+    if (devices.lost(serial)) log.appendLine(`CLU${serial}: not answering, offline`);
+  };
+  runner.onContact = (serial, answered) => (answered ? seen(serial) : lost(serial));
+  live.onContact = (serial, answered) => (answered ? seen(serial) : lost(serial));
+
+  // Background check alive of every CLU we can talk to (no module values: those only when expanded)
+  const aliveSec = vscode.workspace.getConfiguration("opengr8on").get<number>("devices.checkAliveIntervalSec", 30);
+  if (aliveSec > 0) {
+    const alive = new AlivePoller(
+      () => devices.all.filter((c) => reachable(c) && (c.keySource === "clu" || c.keySource === "project")),
+      async (serial) => {
+        const t = target(serial);
+        if (typeof t !== "string") await runner.checkAlive(t.local, t.device);
+      },
+      Math.max(5, aliveSec) * 1000,
+    );
+    alive.start();
+    context.subscriptions.push({ dispose: () => alive.stop() });
+  }
+
   const status = new CluStatusBar(context.workspaceState, (serial) => devices.all.find((c) => c.serial === serial), (serial) => live.error(serial));
   context.subscriptions.push(
     status,
@@ -133,14 +178,21 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  devices.onModuleShown = (serial, module) => {
+    const reads = moduleReads(module);
+    if (reads.length) live.watch(serial, moduleNodeId(serial, module), reads);
+  };
   const devicesView = vscode.window.createTreeView<DeviceNode>("opengr8on.devices", { treeDataProvider: devices, showCollapseAll: true });
   context.subscriptions.push(
     devicesView,
-    devicesView.onDidExpandElement(({ element: n }) => {
-      if (n.kind === "io") live.watch(n.serial, ioNodeId(n.serial, n.module, n.io), ioReads(n.io));
-    }),
+    // clientRegister only for expanded module rows (watched from getChildren, see onModuleShown);
+    // collapsing a module, its Modules row or its CLU ends the subscriptions below it
     devicesView.onDidCollapseElement(({ element: n }) => {
-      if (n.kind === "io") live.unwatch(n.serial, ioNodeId(n.serial, n.module, n.io));
+      if (n.kind === "module") live.unwatch(n.serial, moduleNodeId(n.serial, n.module));
+      else if (n.kind === "modules" || n.kind === "clu") {
+        const serial = n.kind === "clu" ? n.clu.serial : n.serial;
+        live.unwatchPrefix(serial, `clu:${serial}:`);
+      }
     }),
     devicesView.onDidChangeSelection(({ selection }) => {
       const n = selection[0];
@@ -202,7 +254,7 @@ export function activate(context: vscode.ExtensionContext): void {
       discovered.get(serial)?.setAddress(address);
       logs.addressChanged(serial, address);
       devices.patch(serial, { address });
-      void context.workspaceState.update(REMEMBERED_KEY, rememberClus(devices.all));
+      remember();
       devices.invalidate(serial);
     },
     onModulesChanged: (serial) => devices.invalidate(serial),
@@ -244,7 +296,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const infos = found.map((d) => toCluInfo(d)).filter((c): c is CluInfo => c !== null);
         for (const c of infos) c.keySource = (await keys.cipherKeyFor(c.serial, projectScope())).source;
         devices.update(infos);
-        void context.workspaceState.update(REMEMBERED_KEY, rememberClus(devices.all));
+        remember();
         if (found.length === 0) void vscode.window.showInformationMessage(l10n.t("OpenGr8on: no CLU answered on {0} ({1}).", iface.name, iface.address));
       } catch (e) {
         const action = await vscode.window.showErrorMessage(l10n.t("OpenGr8on: discovery failed: {0}", (e as Error).message), l10n.t("Select Network Interface"));
@@ -432,7 +484,7 @@ export function activate(context: vscode.ExtensionContext): void {
       w.onDidLoad((p) => {
         projectTree.update(p, w.errorsByFile, w.resolved);
         // the project's CLUs / GATEs are listed (and usable) in the Devices view without discovery
-        devices.setProject((p?.clus ?? []).map((c) => ({ serial: c.serial, ip: c.ip, name: c.name, gate: c.hw.type === 0x12 })));
+        devices.setProject((p?.clus ?? []).map((c) => ({ serial: c.serial, ip: c.ip, name: c.name, gate: c.hw.type === GATE_HW_TYPE })));
         void (async () => {
           for (const c of devices.all) if (c.inProject && !c.keySource) devices.patch(c.serial, { keySource: (await keys.cipherKeyFor(c.serial, projectScope())).source });
         })().catch((e) => log.appendLine(`keys: ${(e as Error).message}`));
@@ -450,6 +502,10 @@ export function activate(context: vscode.ExtensionContext): void {
     return w;
   };
   const projectReady = findProjectRoot().then((root) => (root ? watchProject(root) : (projectTree.update(undefined, new Map()), undefined)));
+  // welcome buttons (Discover, New Project, Import .omp) only once the project is loaded (or absent)
+  void projectReady
+    .catch((e) => log.appendLine(`project: ${(e as Error).message}`))
+    .finally(() => void vscode.commands.executeCommand("setContext", "opengr8on.ready", true));
 
   /** Reloads the project and returns the resolved CLUs, or undefined (with a message) on errors. */
   const resolvedProject = async () => {

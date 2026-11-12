@@ -25,4 +25,8 @@ it("Devices view content of a project CLU comes from the project (docs/demo PART
   expect(ioReads(lamp).map((r) => r.id)).toContain("DOU1001");
   const timer = v.modules.at(-1)!.ios[0];
   expect([timer.objectId, timer.objectName, timer.name]).toEqual(["TIM1001", "Timer", "TIMER_ROLETY"]);
+  // CLU Timer is v1 (has Value = time left); the GATE Timer v2 has no Value
+  expect(timer.features.map((f) => f.name)).toContain("Value");
+  const noVersion = { ...parter, objects: parter.objects!.map((o) => ({ ...o, version: undefined })) };
+  expect(projectCluView(noVersion, registry).modules.at(-1)!.ios[0].features.map((f) => f.name)).toContain("Value");
 });

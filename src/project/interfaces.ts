@@ -20,9 +20,17 @@ export function ioObject(registry: InterfaceRegistry, m: Pick<ModuleObject, "typ
 }
 
 /** Interface of a virtual object by class number (+ version when several exist). */
-export function objectInterface(registry: InterfaceRegistry, objectClass: number, version?: number) {
+export function objectInterface(registry: InterfaceRegistry, objectClass: number, version?: number, clu?: Pick<Clu, "hwType" | "hwVersion" | "fwType" | "fwVersion">) {
   const cands = registry.allObjects().filter((x) => Number(x.class) === objectClass);
-  const pick = version !== undefined ? cands.find((x) => Number(x.version) === version) : cands.length === 1 ? cands[0] : [...cands].sort((a, b) => Number(b.version) - Number(a.version))[0];
+  // no version: the one the CLU's interface XML lists (CLU: Timer v1, GATE: Timer v2), else the newest
+  const supported = clu ? registry.getCLU(clu.hwType, clu.hwVersion, clu.fwType, clu.fwVersion)?.objects : undefined;
+  const pick =
+    version !== undefined
+      ? cands.find((x) => Number(x.version) === version)
+      : cands.length === 1
+        ? cands[0]
+        : (cands.find((x) => supported?.some((s) => s.name === x.name && Number(s.version) === Number(x.version))) ??
+          [...cands].sort((a, b) => Number(b.version) - Number(a.version))[0]);
   return pick ? { name: pick.name, iface: { features: pick.features, methods: pick.methods, events: pick.events } as ParsedInterface } : undefined;
 }
 

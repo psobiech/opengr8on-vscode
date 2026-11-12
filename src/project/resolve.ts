@@ -351,6 +351,7 @@ export function resolveProject(project: ProjectSource, registry: InterfaceRegist
         objectClass: info.objectClass ?? 0,
         name: o.name,
         removed: o.removed || undefined,
+        ...(o.version !== undefined ? { version: o.version } : {}),
         ...(info.className && info.className !== "OBJECT" ? { className: info.className } : {}),
         features: feats,
         events: events(o.events, info.iface?.events, owner, self),

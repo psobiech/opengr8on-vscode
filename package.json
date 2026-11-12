@@ -59,12 +59,23 @@
     "viewsWelcome": [
       {
         "view": "opengr8on.devices",
-        "contents": "%viewsWelcome.devices.contents%"
+        "contents": "%viewsWelcome.devices.contents%",
+        "when": "opengr8on.ready"
+      },
+      {
+        "view": "opengr8on.devices",
+        "contents": "%viewsWelcome.loading.contents%",
+        "when": "!opengr8on.ready"
+      },
+      {
+        "view": "opengr8on.project",
+        "contents": "%viewsWelcome.loading.contents%",
+        "when": "!opengr8on.ready"
       },
       {
         "view": "opengr8on.project",
         "contents": "%viewsWelcome.project.contents%",
-        "when": "!opengr8on.hasProject"
+        "when": "opengr8on.ready && !opengr8on.hasProject"
       }
     ],
     "commands": [
@@ -210,6 +221,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "opengr8on.newObject",
+        "title": "%command.newObject.title%",
+        "category": "OpenGr8on",
+        "icon": "$(add)"
+      },
+      {
         "command": "opengr8on.deleteItem",
         "title": "%command.deleteItem.title%",
         "category": "OpenGr8on",
@@ -346,6 +363,21 @@
           "group": "1_scripts"
         },
         {
+          "command": "opengr8on.newObject",
+          "when": "view == opengr8on.project && viewItem == group.objects",
+          "group": "inline"
+        },
+        {
+          "command": "opengr8on.newObject",
+          "when": "view == opengr8on.project && viewItem == group.objects",
+          "group": "1_scripts"
+        },
+        {
+          "command": "opengr8on.newObject",
+          "when": "view == opengr8on.project && viewItem == projectClu",
+          "group": "1_scripts"
+        },
+        {
           "command": "opengr8on.deleteItem",
           "when": "view == opengr8on.project && viewItem =~ /^project(Object|Script)$/",
           "group": "9_delete"
@@ -425,6 +457,12 @@
           "type": "boolean",
           "default": false,
           "description": "%config.uploadOnSave.description%"
+        },
+        "opengr8on.devices.checkAliveIntervalSec": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "description": "%config.devices.checkAliveIntervalSec.description%"
         },
         "opengr8on.liveValues.intervalMs": {
           "type": "number",

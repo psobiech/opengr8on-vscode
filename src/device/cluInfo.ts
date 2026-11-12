@@ -13,9 +13,13 @@ export interface CluInfo {
    * for the serial, else PROJECT / NONE depending on whether the reply matched the device key.
    */
   cipher: string;
-  /** answered the last discovery (false: not seen, or never discovered — see inProject) */
+  /**
+   * Answers: the last discovery, any later request (check alive, req:, TFTP, ...) or pushes of an
+   * expanded module (clientRegister), incl. the background check alive (alivePoller.ts).
+   * false: not seen, lost, or never contacted.
+   */
   online: boolean;
-  /** last discovery answer; undefined = known from the project only */
+  /** last answer of any kind; undefined = known from the project only, never contacted */
   lastSeen?: Date;
   /** in the open project (name / GATE from clus/<name>.yaml): usable without discovery, by its IP */
   inProject?: boolean;
@@ -28,7 +32,7 @@ export interface CluInfo {
 
 export function toCluInfo(device: CLUDevice, now = new Date()): CluInfo | null {
   if (device.serialNumber == null) return null;
-  const mac = device.macAddress?.toLowerCase().match(/[0-9a-f]{2}/g)?.join(":") ?? null;
+  const mac = normalizeMac(device.macAddress);
   return { serial: device.serialNumber, address: device.address, mac, cipher: String(device.cipherType), online: true, lastSeen: now };
 }
 
@@ -85,6 +89,23 @@ function sortClus(list: CluInfo[]): CluInfo[] {
  */
 export const reachable = (c: CluInfo) => !!c.address;
 
+/** aa:bb:cc:dd:ee:ff (lower case) from any MAC spelling (aabbccddeeff, AA-BB-..., ...), else null. */
+export function normalizeMac(mac: string | null | undefined): string | null {
+  const parts = mac?.toLowerCase().match(/[0-9a-f]{2}/g);
+  if (!parts || parts.length !== 6) return null;
+  const s = parts.join(":");
+  return s === "00:00:00:00:00:00" ? null : s;
+}
+
+/**
+ * A CLU answered (any request or push): online, lastSeen = now, and fills fields learned on the
+ * way (MAC from CONFIG.JSON / ARP). Returns the updated entry; `flipped` is true when it was offline.
+ */
+export function markSeen(c: CluInfo, now: Date, fields: { mac?: string | null } = {}): { clu: CluInfo; flipped: boolean } {
+  const mac = normalizeMac(fields.mac) ?? c.mac;
+  return { clu: { ...c, online: true, lastSeen: now, mac }, flipped: !c.online };
+}
+
 /** Discovered CLUs remembered across VS Code restarts (workspaceState); project data is not stored. */
 export interface RememberedClu {
   serial: number;
@@ -117,6 +138,6 @@ export function cluDetails(c: CluInfo, tr: Tr = english): Array<[string, string]
     ["MAC", c.mac ?? tr("unknown")],
     [tr("Cipher"), c.cipher || tr("unknown")],
     [tr("Stored key"), c.keySource === "clu" ? tr("own key") : c.keySource === "project" ? tr("project key") : tr("none")],
-    [tr("Last seen"), c.lastSeen ? c.lastSeen.toLocaleString() : tr("not discovered (address from the project)")],
+    [tr("Last seen"), c.lastSeen ? c.lastSeen.toLocaleString() : tr("never (address from the project)")],
   ];
 }

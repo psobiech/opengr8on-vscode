@@ -166,7 +166,7 @@ export function luaStubs(clus: Clu[], registry: InterfaceRegistry): StubResult {
     }
     for (const v of clu.objects ?? []) {
       if (v.removed) continue;
-      const o = objectInterface(registry, v.objectClass, v.version);
+      const o = objectInterface(registry, v.objectClass, v.version, clu);
       const cls = o ? ident(o.name) : "GrentonObject";
       if (o && !classes.has(cls)) classes.set(cls, classBlock(cls, o.iface, `${o.name} (virtual object, class ${v.objectClass})`));
       declare(v.id, cls, `${v.name} on ${clu.name} (virtual ${o?.name ?? `class ${v.objectClass}`})`);

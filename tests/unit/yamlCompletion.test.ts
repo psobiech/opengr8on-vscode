@@ -95,4 +95,22 @@ describe("YAML completion context (line based, works while typing)", () => {
     expect(items.map((i) => i.label)).toEqual(expect.arrayContaining(["OnSwitchOn", "OnLongPress"]));
     expect(items.find((i) => i.label === "OnClick")?.detail).toMatch(/^already used/);
   });
+
+  it("offers the CLU's virtual object types after class: and the versions after version:", () => {
+    const text = base.replace(/\nobjects:\n/, "\nobjects:\n  - id: NEW0001\n    class: |\n    version: |\n    name: n\n  - class: Ti|\n");
+    const cls = complete(text, 2); // base has two cursors before objects:
+    const timer = cls.items.find((i) => i.label === "Timer");
+    expect(timer).toMatchObject({ insert: "Timer", detail: "class 6, version 1" }); // PARTER is a CLU: Timer v1 only
+    expect(cls.items.some((i) => i.label === "HttpListener")).toBe(false); // GATE-only
+    const typed = complete(text, 4);
+    expect(typed.replaceLength).toBe(2);
+    expect(typed.items.map((i) => i.label)).toContain("Timer");
+  });
+
+  it("offers versions of the item's class and inserts a space when triggered by ':'", () => {
+    const text = base.replace(/\nobjects:\n/, "\nobjects:\n  - id: NEW0001\n    class: Timer\n    version:|\n");
+    const v = complete(text, 2);
+    expect(v.items.map((i) => [i.label, i.insert])).toEqual(expect.arrayContaining([["1", " 1"], ["2", " 2"]]));
+    expect(v.items.find((i) => i.label === "2")?.detail).toContain("GATE");
+  });
 });

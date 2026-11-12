@@ -18,7 +18,9 @@ export function statusView(serial: number | undefined, clu: CluInfo | undefined,
   if (serial === undefined) return { text: `$(circuit-board) ${l10n.t("no CLU")}`, tooltip: l10n.t("OpenGr8on: select a CLU"), warning: false };
   const id = cluObjectId({ serial });
   if (!clu) return { text: `$(circuit-board) ${id}`, tooltip: l10n.t("{0}: not discovered in this session (run Discover CLUs)", id), warning: true };
-  if (!clu.online && !clu.inProject) return { text: `$(debug-disconnect) ${id}`, tooltip: l10n.t("{0} ({1}): not seen in the last discovery", id, clu.address ?? "?"), warning: true };
+  // offline: seen before but not answering now (a project CLU never contacted is just not known yet)
+  if (!clu.online && (!clu.inProject || clu.lastSeen))
+    return { text: `$(debug-disconnect) ${id}`, tooltip: l10n.t("{0} ({1}): offline, last seen {2}", id, clu.address ?? "?", clu.lastSeen?.toLocaleString() ?? "?"), warning: true };
   if (liveError) return { text: `$(warning) ${id} ${clu.address ?? ""}`.trim(), tooltip: `${id}: ${liveError}`, warning: true };
   return { text: `$(circuit-board) ${id} ${clu.address ?? ""}`.trim(), tooltip: l10n.t("{0} ({1}) · key: {2} · click to change", id, clu.address ?? "?", keySourceLabel(clu.keySource)), warning: false };
 }

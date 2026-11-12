@@ -1,5 +1,7 @@
+import { vi } from "vitest";
 import { CLUDevice, CipherType } from "opengr8on-node/client";
-import { cluDetails, cluObjectId, mergeDiscovery, mergeProject, reachable, rememberClus, restoreClus, toCluInfo, type CluInfo } from "../../src/device/cluInfo";
+import { cluDetails, cluObjectId, markSeen, mergeDiscovery, mergeProject, normalizeMac, reachable, rememberClus, restoreClus, toCluInfo, type CluInfo } from "../../src/device/cluInfo";
+import { macFromArp, macFromProcArp } from "../../src/device/arp";
 import type { CluConfigView } from "../../src/device/cluConfig";
 import { DevicesTreeProvider, ioReads } from "../../src/views/devicesTree";
 
@@ -82,7 +84,62 @@ describe("cluDetails", () => {
   });
 });
 
+describe("contact (any answer fills online / lastSeen / MAC)", () => {
+  it("normalizes MACs", () => {
+    expect(normalizeMac("AABBCC001122")).toBe("aa:bb:cc:00:11:22");
+    expect(normalizeMac("aa-bb-cc-00-11-22")).toBe("aa:bb:cc:00:11:22");
+    expect(normalizeMac("00:00:00:00:00:00")).toBeNull();
+    expect(normalizeMac("aabb")).toBeNull();
+    expect(normalizeMac(undefined)).toBeNull();
+  });
+
+  it("markSeen sets online and lastSeen, keeps a known MAC unless a new one is given", () => {
+    const t1 = new Date(t0.getTime() + 1000);
+    const off = { ...clu(1, "10.0.0.1", { mac: "aa:bb:cc:dd:ee:ff" }), online: false };
+    expect(markSeen(off, t1)).toEqual({ clu: { ...off, online: true, lastSeen: t1 }, flipped: true });
+    expect(markSeen(off, t1, { mac: "112233445566" }).clu.mac).toBe("11:22:33:44:55:66");
+    expect(markSeen(clu(1, "10.0.0.1"), t1).flipped).toBe(false);
+  });
+
+  it("reads the MAC of an IP from /proc/net/arp (complete entries only)", async () => {
+    const arp = [
+      "IP address       HW type     Flags       HW address            Mask     Device",
+      "10.0.0.13        0x1         0x2         aa:bb:cc:00:11:22     *        eth0",
+      "10.0.0.14        0x1         0x0         00:00:00:00:00:00     *        eth0",
+    ].join("\n");
+    expect(macFromProcArp(arp, "10.0.0.13")).toBe("aa:bb:cc:00:11:22");
+    expect(macFromProcArp(arp, "10.0.0.14")).toBeNull();
+    expect(macFromProcArp(arp, "10.0.0.1")).toBeNull();
+    if (process.platform === "linux") {
+      expect(await macFromArp("10.0.0.13", async () => arp)).toBe("aa:bb:cc:00:11:22");
+      expect(await macFromArp("10.0.0.13", async () => Promise.reject(new Error("EACCES")))).toBeNull();
+    }
+  });
+});
+
 describe("DevicesTreeProvider", () => {
+  it("seen / lost: project CLUs come online on any answer, refresh is throttled, CONFIG.JSON fills the MAC", async () => {
+    const tree = new DevicesTreeProvider(async () => ({ ...({ modules: [] } as unknown as CluConfigView), mac: "AABBCCDDEEFF" }));
+    tree.setProject([{ serial: 9, ip: "10.0.0.9", name: "MODBUS", gate: false }]);
+    let fired = 0;
+    tree.onDidChangeTreeData(() => fired++);
+    const t1 = new Date(t0.getTime() + 1000);
+    expect(tree.seen(9, {}, t1)).toBe(true); // came online: worth remembering
+    expect(tree.all[0]).toMatchObject({ online: true, lastSeen: t1, inProject: true, address: "10.0.0.9" });
+    expect(fired).toBe(1);
+    expect(tree.seen(9, {}, new Date(t1.getTime() + 1000))).toBe(false); // push every second: no refresh
+    expect(fired).toBe(1);
+    tree.seen(9, {}, new Date(t1.getTime() + 11_000));
+    expect(fired).toBe(2);
+    expect(tree.seen(9, { address: "10.0.0.99" })).toBe(false); // project IP stays
+    expect(tree.lost(9)).toBe(true);
+    expect(tree.lost(9)).toBe(false);
+    expect(tree.getTreeItem((await tree.getChildren())[0]).description).toMatch(/^10\.0\.0\.9 · CLU9 \(offline, last seen .+\)$/);
+    await tree.loadConfigFor(9);
+    expect(tree.all[0]).toMatchObject({ online: true, mac: "aa:bb:cc:dd:ee:ff" });
+    expect(tree.seen(123)).toBe(false); // unknown serial
+  });
+
   it("shows project CLUs by name, usable (modules) without discovery", async () => {
     const tree = new DevicesTreeProvider(async () => ({ modules: [] }) as unknown as CluConfigView);
     tree.setProject([{ serial: 9, ip: "10.0.0.9", name: "MODBUS", gate: true }]);
@@ -102,7 +159,7 @@ describe("DevicesTreeProvider", () => {
     const roots = await tree.getChildren();
     expect(roots).toHaveLength(2);
     // not seen any more, but its address is known: still usable (no discovery needed)
-    expect(tree.getTreeItem(roots[0])).toMatchObject({ label: "CLU1", contextValue: "clu", description: "10.0.0.1 (not seen in the last discovery)" });
+    expect(tree.getTreeItem(roots[0])).toMatchObject({ label: "CLU1", contextValue: "clu", description: expect.stringMatching(/^10\.0\.0\.1 \(offline, last seen .+\)$/) });
     expect(tree.getTreeItem(roots[1])).toMatchObject({ label: "CLU2", contextValue: "clu", description: "10.0.0.2", id: "clu:2" });
 
     const details = (await tree.getChildren(roots[1])).map((n) => tree.getTreeItem(n));
@@ -130,6 +187,36 @@ describe("DevicesTreeProvider", () => {
       }],
     }],
   };
+
+  it("throttles live re-renders (VS Code's 200 ms debounce would starve on fast pushes); the last one always shows", () => {
+    vi.useFakeTimers();
+    try {
+      const tree = new DevicesTreeProvider();
+      let fired = 0;
+      tree.onDidChangeTreeData(() => fired++);
+      for (let i = 0; i < 10; i++) {
+        tree.refresh(); // a push every 100 ms
+        vi.advanceTimersByTime(100);
+      }
+      expect(fired).toBe(4); // t=0, 300, 600, 900
+      vi.advanceTimersByTime(1000);
+      expect(fired).toBe(5); // trailing one for the refresh at 900, at 1200; then quiet
+      tree.refresh();
+      tree.refresh();
+      vi.advanceTimersByTime(300);
+      expect(fired).toBe(7); // immediate + trailing
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports shown (expanded) module rows, also ones VS Code restores without an expand event", async () => {
+    const tree = new DevicesTreeProvider(async () => cfg);
+    const shown: string[] = [];
+    tree.onModuleShown = (serial, m) => shown.push(`${serial}/${m.serial}`);
+    await tree.getChildren({ kind: "module", serial: 2, module: cfg.modules[0] });
+    expect(shown).toEqual(["2/330000009"]);
+  });
 
   it("loads modules lazily once, then shows type, firmware, modules and IOs", async () => {
     let loads = 0;

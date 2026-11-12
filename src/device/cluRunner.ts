@@ -45,14 +45,30 @@ async function startTftp(c: RunnerClient, device: CLUDevice): Promise<void> {
   if (!started) throw new Error(`CLU${device.serialNumber}: no answer to the TFTP server start`);
 }
 
+/**
+ * A CLU answered (`true`: any non-null result of an operation) or did not answer check alive
+ * (`false`). Feeds the Devices view's online / lastSeen; `address` is where it answered.
+ */
+export type ContactListener = (serial: number, answered: boolean, address: string) => void;
+
 export class CluRunner {
   private readonly queues = new Map<number, Promise<unknown>>();
+  /** Set by the extension; called after every operation that reached the CLU. */
+  onContact: ContactListener | undefined;
 
   constructor(
     private readonly keys: KeyStore,
     private readonly scope: () => string | undefined,
     private readonly createClient: ClientFactory = (addr, d, k) => new CLUClient(addr, d, k),
   ) {}
+
+  private contact(serial: number, answered: boolean, address: string): void {
+    try {
+      this.onContact?.(serial, answered, address);
+    } catch {
+      /* a listener error must not fail the operation */
+    }
+  }
 
   /** Runs `op` with a client for `device`, after any operation already queued for that CLU. */
   run<T>(localAddress: string, device: CLUDevice, op: (c: RunnerClient) => Promise<T>): Promise<T> {
@@ -66,7 +82,10 @@ export class CluRunner {
         if (!key) throw new Error(`no key for CLU${serial}: adopt it or import keys`);
         const client = this.createClient(localAddress, device, key);
         try {
-          return await op(client);
+          const result = await op(client);
+          // null = no answer (CLUClient convention); anything else, even false / void, did answer
+          if (result !== null) this.contact(serial, true, device.address!);
+          return result;
         } finally {
           client.close();
         }
@@ -78,13 +97,18 @@ export class CluRunner {
     return next;
   }
 
-  checkAlive(local: string, device: CLUDevice): Promise<boolean | null> {
-    return this.run(local, device, (c) => c.checkAlive());
+  async checkAlive(local: string, device: CLUDevice): Promise<boolean | null> {
+    const alive = await this.run(local, device, (c) => c.checkAlive());
+    if (alive === null && device.serialNumber != null) this.contact(device.serialNumber, false, device.address!);
+    return alive;
   }
 
   /** Resets and waits until the CLU answers check alive again (false = timed out). */
-  reset(local: string, device: CLUDevice): Promise<boolean> {
-    return this.run(local, device, (c) => c.reset());
+  async reset(local: string, device: CLUDevice): Promise<boolean> {
+    const back = await this.run(local, device, (c) => c.reset());
+    // run() counted the reset as an answer; not back after the wait = offline
+    if (!back && device.serialNumber != null) this.contact(device.serialNumber, false, device.address!);
+    return back;
   }
 
   async setAddress(local: string, device: CLUDevice, address: string, gateway: string): Promise<string> {

@@ -38,7 +38,8 @@ export function destroyExpression(local: string, port: number, id: number): stri
 /**
  * `clientReport:<id>:{v1,v2,...}` (with or without the `resp:<ip>:<session>:` header) → id and the
  * values as Lua's tostring would print them (strings unquoted, nil as "nil"). Undefined if it is not
- * a client report or the value list cannot be read.
+ * a client report or the value list cannot be read. A bare string containing a comma splits into
+ * several values; the value count check of the caller catches that (→ polling).
  */
 export function parseClientReport(text: string): { id: number; values: string[] } | undefined {
   const m = /clientReport:(\d+):\{([\s\S]*)\}\s*$/.exec(text);
@@ -47,7 +48,7 @@ export function parseClientReport(text: string): { id: number; values: string[] 
   return values ? { id: Number(m[1]), values } : undefined;
 }
 
-/** Comma-separated Lua literals: numbers, "strings" (with escapes), true / false / nil. */
+/** Comma-separated values: numbers, "strings" (with escapes) or bare strings, true / false / nil. */
 function parseLuaList(src: string): string[] | undefined {
   const out: string[] = [];
   let i = 0;
@@ -72,9 +73,12 @@ function parseLuaList(src: string): string[] | undefined {
       i++;
       out.push(s);
     } else {
-      const m = /^[^,\s]+/.exec(src.slice(i));
-      if (!m || !/^(-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?|0x[0-9a-fA-F]+|true|false|nil|-?inf|-?nan)$/.test(m[0])) return undefined;
-      out.push(m[0]);
+      // numbers, true / false / nil, and strings: the CLU sends string features unquoted
+      // (observed fw 5.15: {2115923,nil,1,2026-11-12,13:19:54,...}); such a value ends at the next comma
+      const m = /^[^,]*/.exec(src.slice(i))!;
+      const v = m[0].trim();
+      if (!v) return undefined;
+      out.push(v);
       i += m[0].length;
     }
     ws();

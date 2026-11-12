@@ -84,7 +84,14 @@ i **Projekt**. W widoku projektu każde CLU ma:
 - **Obiekty wirtualne** — timery, termostaty, harmonogramy,
 - **Skrypty** — skrypty CLU.
 
-Kliknięcie elementu otwiera go w pliku YAML / skrypcie.
+Kliknięcie elementu otwiera go w pliku YAML / skrypcie. Ikona CLU odróżnia bramkę (GATE) od CLU tak
+samo jak w widoku urządzeń.
+
+**Nowy obiekt wirtualny:** najedź na *Obiekty wirtualne* danego CLU i kliknij **+** (albo prawy
+przycisk na CLU → *Nowy obiekt wirtualny…*). Do wyboru są typy, które dane CLU obsługuje (np. Timer v1
+na CLU, Timer v2 na GATE); po podaniu nazwy obiekt dostaje identyfikator w stylu Object Managera
+(np. `TIM4821`) i trafia na koniec listy `objects:` w `clus/<CLU>.yaml`, który się otwiera — tam
+dopisz cechy i zdarzenia.
 
 **Usuwanie:** prawy przycisk na obiekcie wirtualnym albo skrypcie → *Usuń…*. Najpierw sprawdzane
 jest, czy coś go jeszcze używa (akcje zdarzeń, cechy-odwołania, skrypty — także zapis
@@ -220,15 +227,28 @@ podsieci niż komputer — wykrywanie przez rozgłoszenie ich nie znajdzie). Dla
 pod *Moduły* pochodzi z projektu: najpierw **samo CLU** (jego cechy: Uptime, Date, Time, …), potem
 moduły z obiektami i **obiekty wirtualne**; wartości są odczytywane na żywo z CLU.
 
-Wartości na żywo CLU **wysyła samo przy każdej zmianie** (subskrypcja `SYSTEM:clientRegister`, port UDP
-tego komputera) — bez ciągłego odpytywania. Jeśli te wiadomości nie docierają (np. zapora sieciowa
-blokuje przychodzący UDP) albo CLU tego nie obsługuje, rozszerzenie samo przechodzi na odpytywanie co
-2 s (ustawienia `opengr8on.liveValues.push` i `opengr8on.liveValues.intervalMs`). Pojedyncza zgubiona
-odpowiedź nie jest zgłaszana jako błąd.
+Wartości na żywo są pobierane **tylko dla rozwiniętych modułów** (także *samego CLU* i *obiektów
+wirtualnych*). CLU **wysyła je samo przy każdej zmianie** (subskrypcja `SYSTEM:clientRegister` na port
+UDP tego komputera, jedna na obiekt, jak w Object Managerze) — bez ciągłego odpytywania. Rozwinięcie
+kolejnego modułu dodaje tylko jego obiekty; zwinięcie modułu, *Modułów* albo całego CLU kończy ich
+subskrypcje. Moduły rozwinięte przed ponownym uruchomieniem VS Code są subskrybowane od razu. Jeśli
+wiadomości z CLU nie docierają (np. zapora sieciowa blokuje przychodzący UDP) albo CLU tego nie
+obsługuje, rozszerzenie samo przechodzi na odpytywanie co 2 s (ustawienia `opengr8on.liveValues.push`
+i `opengr8on.liveValues.intervalMs`). Pojedyncza zgubiona odpowiedź nie jest zgłaszana jako błąd.
+
+**Stan CLU** (online, *Ostatnio widziane*) aktualizuje każda odpowiedź CLU — wykrywanie, *Sprawdź,
+czy działa*, odczyty, pobieranie i wysyłanie plików, wartości na żywo. Dodatkowo co 30 s w tle
+sprawdzane jest, czy każde CLU, do którego mamy klucz, działa (`checkAlive`; bez odczytu wartości
+modułów); CLU, które w tym czasie odpowiedziało na cokolwiek innego, nie jest pytane (ustawienie
+`opengr8on.devices.checkAliveIntervalSec`, 0 = wyłączone). CLU, które przestało odpowiadać, ma opis
+*offline, ostatnio widziane …* (także na pasku stanu). **MAC** pochodzi z wykrywania, z `CONFIG.JSON`
+albo — dla CLU znanych tylko z projektu — z tablicy ARP systemu (tylko Linux).
 
 CLU znalezione przez wykrywanie są **zapamiętywane** (adres, MAC; nigdy klucze) i po ponownym
 uruchomieniu VS Code nadal są na liście i działają pod zapamiętanym adresem. Urządzenia Z-Wave pod CLU
-pokazują swoje obiekty i wartości tak jak moduły TF-Bus.
+pokazują swoje obiekty i wartości tak jak moduły TF-Bus. Podczas wczytywania projektu widoki pokazują
+*Wczytywanie projektu…* — przyciski *Wykryj CLU*, *Nowy projekt* itd. pojawiają się dopiero, gdy
+projektu nie ma.
 
 - **Wykryj CLU** — wykrywa CLU w sieci; **Wybierz interfejs sieciowy** — wybór karty sieciowej,
   gdy komputer ma ich kilka,
@@ -238,8 +258,10 @@ pokazują swoje obiekty i wartości tak jak moduły TF-Bus.
 - **Dołącz CLU do projektu…** — nadaje CLU klucz projektu (potrzebny PIN z naklejki CLU). Uwaga:
   Object Manager straci wtedy dostęp do tego CLU, dopóki go ponownie nie dołączy,
 - **Importuj klucze (keys.json)** — import kluczy z `.opengr8on/keys.json`,
-- rozwinięcie CLU → *Moduły* → obiekt (albo *samo CLU*) pokazuje **wartości na żywo**; ikonami przy cechach
-  i obiektach można zmieniać wartości i wywoływać metody.
+- rozwinięcie CLU → *Moduły* → moduł → obiekt (albo *samo CLU*) pokazuje **wartości na żywo**; ikonami
+  przy cechach i obiektach można zmieniać wartości i wywoływać metody. Cechy obiektów wirtualnych
+  odpowiadają wersji z projektu (`version`), a bez niej — wersji obsługiwanej przez dane CLU (np.
+  *Timer* na CLU ma cechę *Value*, czyli czas do zdarzenia *OnTimer*; Timer na GATE jej nie ma).
 
 ![Widok urządzeń](img/10-urzadzenia.png)
 

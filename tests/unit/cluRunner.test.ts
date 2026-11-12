@@ -57,6 +57,22 @@ describe("CluRunner", () => {
     expect(log).toEqual(["alive", "close"]);
   });
 
+  it("reports contact: any answer is seen, check alive without answer / reset not back is lost", async () => {
+    const contacts: Array<[number, boolean, string]> = [];
+    const ok = await runner();
+    ok.r.onContact = (...c) => void contacts.push(c);
+    await ok.r.checkAlive("x", device());
+    await ok.r.execute("x", device(), "1");
+    expect(contacts).toEqual([[100000013, true, "10.0.0.13"], [100000013, true, "10.0.0.13"]]);
+    const dead = await runner(fake({ checkAlive: async () => null, execute: async () => null, reset: async () => false }));
+    contacts.length = 0;
+    dead.r.onContact = (...c) => void contacts.push(c);
+    expect(await dead.r.checkAlive("x", device())).toBeNull();
+    await expect(dead.r.execute("x", device(), "1")).rejects.toThrow(/no answer/);
+    expect(await dead.r.reset("x", device())).toBe(false);
+    expect(contacts.map((c) => c[1])).toEqual([false, true, false]); // execute: no contact either way
+  });
+
   it("downloads over TFTP with start/stop around it", async () => {
     const { r, log } = await runner();
     const buf = await r.download("x", device(), CLUFiles.OM_LUA);

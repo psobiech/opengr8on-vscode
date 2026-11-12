@@ -68,7 +68,7 @@ export function projectCluView(clu: Clu, registry: InterfaceRegistry, tr: Tr = e
       fwApiVer: 0,
       status: "",
       ios: virtual.map((o) => {
-        const i = objectInterface(registry, o.objectClass, o.version);
+        const i = objectInterface(registry, o.objectClass, o.version, clu);
         return { label: o.name, defaultName: o.name, objectName: i?.name ?? String(o.objectClass), objectClass: o.objectClass, channel: 0, features: i?.iface.features ?? [], methods: i?.iface.methods ?? [], objectId: o.id, name: o.name };
       }),
     });
