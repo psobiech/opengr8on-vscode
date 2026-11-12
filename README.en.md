@@ -34,6 +34,26 @@ Docs: [design](docs/DESIGN.md) · [OM.LUA format](docs/OM_LUA_FORMAT.md) ·
 [.omp format](docs/OMP_FORMAT.md) · [project format](docs/PROJECT_FORMAT.md) ·
 [references](docs/REFERENCES.md)
 
+## Install
+
+1. Download `opengr8on-vscode-X.Y.Z.vsix` from the latest release:
+   **[Releases](https://github.com/psobiech/opengr8on-vscode/releases/latest)**.
+2. In VS Code (≥ 1.85): **Extensions** view (`Ctrl+Shift+X`) → `⋯` menu → **Install from
+   VSIX…** → pick the file. Or from a terminal:
+
+   ```bash
+   code --install-extension opengr8on-vscode-X.Y.Z.vsix
+   ```
+
+3. VS Code then installs the bundled extension pack from the Marketplace: **Lua** (`sumneko.lua`)
+   and **YAML** (`redhat.vscode-yaml`). VSCodium gets them from Open VSX, same result
+   (`codium --install-extension …`).
+4. Open a folder with `opengr8on.yaml`, or run **OpenGr8on: New Project** / **OpenGr8on: Import from Object
+   Manager (.omp)** — then see the [manual (PL)](docs/INSTRUKCJA.md).
+
+Updating: install the newer `.vsix` the same way (it replaces the old version). The computer must be
+on the same network as the CLUs (UDP/TFTP).
+
 ## Build & bundle
 
 ### Prerequisites
@@ -94,7 +114,14 @@ holds `dist/extension.js`, `dist/interfaces/`, `schemas/`, `resources/`, `packag
 license (about 1.2 MB).
 
 CI (`.github/workflows/ci.yml`) runs typecheck, build, tests and the package step on every push /
-pull request to `main` and uploads the `.vsix` as the `opengr8on-vscode-vsix` artifact.
+pull request to `develop` and uploads the `.vsix` as the `opengr8on-vscode-vsix` artifact.
+
+### Release
+
+`.github/workflows/release.yml` publishes a release when a tag is pushed:
+`git tag vX.Y.Z && git push origin vX.Y.Z`. The tag sets the version (written into `package.json` in
+CI). The workflow builds, tests and creates a GitHub Release with `opengr8on-vscode-X.Y.Z.vsix` (+ `.sha256`). A suffixed
+version (`0.2.0-rc.1`) becomes a pre-release.
 
 ### Tests
 

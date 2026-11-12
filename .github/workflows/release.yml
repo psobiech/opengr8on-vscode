@@ -1,0 +1,52 @@
+name: Release
+
+# Push a tag `vX.Y.Z` to build the extension and publish
+# a GitHub Release with the .vsix attached. Versions with a suffix (0.1.0-rc.1) become pre-releases.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true # lib/opengr8on-node, bundled from TS source
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Set version from tag
+        # package.json keeps the base version; the tag (v0.0.1, v0.0.1-alpha, ...) is the
+        # source of truth for the packaged .vsix. Only the CI checkout is modified (package.json +
+        # package-lock.json, so `npm ci` stays in sync). Fails on a non-semver tag.
+        run: |
+          npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+      - name: Package
+        run: |
+          vsix="opengr8on-vscode-${GITHUB_REF_NAME#v}.vsix"
+          npm run package -- -o "$vsix"
+          sha256sum "$vsix" > "$vsix.sha256"
+          echo "VSIX=$vsix" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" "$VSIX" "$VSIX.sha256" \
+            --title "$GITHUB_REF_NAME" --generate-notes $prerelease

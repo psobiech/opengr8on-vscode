@@ -36,6 +36,26 @@ Dokumentacja (po angielsku): [projekt](docs/DESIGN.md) · [format OM.LUA](docs/O
 [format .omp](docs/OMP_FORMAT.md) · [format projektu](docs/PROJECT_FORMAT.md) ·
 [odnośniki](docs/REFERENCES.md)
 
+## Instalacja
+
+1. Pobierz plik `opengr8on-vscode-X.Y.Z.vsix` z najnowszego wydania:
+   **[Releases](https://github.com/psobiech/opengr8on-vscode/releases/latest)**.
+2. W VS Code (≥ 1.85): widok **Rozszerzenia** (`Ctrl+Shift+X`) → menu `⋯` → **Zainstaluj z
+   VSIX…** → wskaż pobrany plik. Albo z terminala:
+
+   ```bash
+   code --install-extension opengr8on-vscode-X.Y.Z.vsix
+   ```
+
+3. VS Code doinstaluje z Marketplace rozszerzenia z pakietu: **Lua** (`sumneko.lua`) i **YAML**
+   (`redhat.vscode-yaml`). W VSCodium pochodzą z Open VSX — działa tak samo
+   (`codium --install-extension …`).
+4. Otwórz folder z plikiem `opengr8on.yaml` albo użyj polecenia **OpenGr8on: Nowy projekt** /
+   **OpenGr8on: Importuj z Object Managera (.omp)** — dalej: [instrukcja](docs/INSTRUKCJA.md).
+
+Aktualizacja: zainstaluj nowszy `.vsix` tak samo (zastępuje poprzednią wersję). Komputer musi być w
+tej samej sieci co CLU (UDP/TFTP).
+
 ## Budowanie i pakowanie
 
 ### Wymagania
@@ -95,8 +115,15 @@ Wszystko, czego rozszerzenie potrzebuje w działaniu, jest już w pakiecie, stą
 deweloperskie; pakiet zawiera `dist/extension.js`, `dist/interfaces/`, `schemas/`, `resources/`,
 `package.json`, README i licencję (ok. 1,2 MB).
 
-CI (`.github/workflows/ci.yml`) przy każdym pushu / pull requeście do `main` sprawdza typy, buduje,
+CI (`.github/workflows/ci.yml`) przy każdym pushu / pull requeście do `develop` sprawdza typy, buduje,
 uruchamia testy i pakowanie, a plik `.vsix` udostępnia jako artefakt `opengr8on-vscode-vsix`.
+
+### Wydanie
+
+Wydanie publikuje `.github/workflows/release.yml` po wypchnięciu tagu:
+`git tag vX.Y.Z && git push origin vX.Y.Z`. Wersję wyznacza tag (w CI wpisywana do `package.json`).
+Workflow buduje, testuje i tworzy GitHub Release z `opengr8on-vscode-X.Y.Z.vsix` (+ `.sha256`). Wersja z sufiksem
+(`0.2.0-rc.1`) trafia jako pre-release.
 
 ### Testy
 

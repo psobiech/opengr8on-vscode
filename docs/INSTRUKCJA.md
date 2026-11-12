@@ -31,11 +31,16 @@ Można go otworzyć i wypróbować wszystko poza komunikacją z CLU.
 - rozszerzenie **Lua** (sumneko, `sumneko.lua`) — podpowiedzi i sprawdzanie skryptów,
 - komputer w tej samej sieci co CLU (wykrywanie i wysyłanie działają przez UDP/TFTP w sieci lokalnej).
 
-Instalacja z pliku `.vsix` (zbudowanego poleceniem `npm run package` albo pobranego z CI):
+Instalacja: pobierz `opengr8on-vscode-X.Y.Z.vsix` z
+[najnowszego wydania](https://github.com/psobiech/opengr8on-vscode/releases/latest), potem w VS Code
+widok **Rozszerzenia** (`Ctrl+Shift+X`) → menu `⋯` → **Zainstaluj z VSIX…**, albo w terminalu:
 
 ```bash
-code --install-extension opengr8on-vscode.vsix
+code --install-extension opengr8on-vscode-X.Y.Z.vsix
 ```
+
+Rozszerzenia **Lua** i **YAML** VS Code doinstaluje samo (są w pakiecie rozszerzenia; VSCodium bierze
+je z Open VSX).
 
 Rozszerzenie uruchamia się samo, gdy w otwartym folderze jest plik `opengr8on.yaml`, albo po użyciu
 któregokolwiek polecenia OpenGr8on.
