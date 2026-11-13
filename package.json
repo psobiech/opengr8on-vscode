@@ -264,82 +264,82 @@
       "view/item/context": [
         {
           "command": "opengr8on.adoptClu",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "9_keys"
         },
         {
           "command": "opengr8on.forgetCluKeys",
-          "when": "view == opengr8on.devices && viewItem =~ /^clu/",
+          "when": "(view == opengr8on.devices && viewItem =~ /^clu/ || view == opengr8on.project && viewItem == projectClu)",
           "group": "9_keys"
         },
         {
           "command": "opengr8on.checkAlive",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "1_status"
         },
         {
           "command": "opengr8on.downloadFile",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "2_files"
         },
         {
           "command": "opengr8on.diagnosticPack",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "2_files"
         },
         {
           "command": "opengr8on.refreshModules",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "3_manage"
         },
         {
           "command": "opengr8on.setCluIp",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "3_manage"
         },
         {
           "command": "opengr8on.resetClu",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "3_manage"
         },
         {
           "command": "opengr8on.checkAlive",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "inline"
         },
         {
           "command": "opengr8on.setFeature",
-          "when": "view == opengr8on.devices && viewItem == feature.set",
+          "when": "view =~ /^opengr8on\\.(devices|project)$/ && viewItem == feature.set",
           "group": "inline"
         },
         {
           "command": "opengr8on.setFeature",
-          "when": "view == opengr8on.devices && viewItem == feature.set",
+          "when": "view =~ /^opengr8on\\.(devices|project)$/ && viewItem == feature.set",
           "group": "1_live"
         },
         {
           "command": "opengr8on.executeMethod",
-          "when": "view == opengr8on.devices && viewItem == io.mapped",
+          "when": "(view =~ /^opengr8on\\.(devices|project)$/ && viewItem == io.mapped || view == opengr8on.project && viewItem =~ /^project(Io|Object)$/)",
           "group": "inline"
         },
         {
           "command": "opengr8on.executeMethod",
-          "when": "view == opengr8on.devices && viewItem == io.mapped",
+          "when": "(view =~ /^opengr8on\\.(devices|project)$/ && viewItem == io.mapped || view == opengr8on.project && viewItem =~ /^project(Io|Object)$/)",
           "group": "1_live"
         },
         {
           "command": "opengr8on.openLogs",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "inline"
         },
         {
           "command": "opengr8on.openLogs",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "1_status"
         },
         {
           "command": "opengr8on.setLogLevel",
-          "when": "view == opengr8on.devices && viewItem == clu",
+          "when": "(view == opengr8on.devices && viewItem == clu || view == opengr8on.project && viewItem == projectClu)",
           "group": "1_status"
         },
         {

@@ -28,4 +28,16 @@ describe("AlivePoller (background check alive)", () => {
     await p.tick();
     expect(asked).toEqual([1, 3, 1, 2, 3]);
   });
+
+  it("checks offline CLUs every round, however recently they were seen (restored, lost)", async () => {
+    const asked: number[] = [];
+    const p = new AlivePoller(
+      () => [{ serial: 1, lastSeen: new Date(95_000), online: false }, { serial: 2, lastSeen: new Date(95_000), online: true }],
+      async (serial) => void asked.push(serial),
+      30_000,
+      () => 100_000,
+    );
+    await p.tick();
+    expect(asked).toEqual([1]);
+  });
 });

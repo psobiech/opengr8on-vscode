@@ -8,6 +8,8 @@ export interface AliveTarget {
   serial: number;
   /** last answer of any kind */
   lastSeen?: Date;
+  /** false: checked every round, however recent lastSeen is (restored after a restart, lost) */
+  online?: boolean;
 }
 
 export class AlivePoller {
@@ -37,7 +39,7 @@ export class AlivePoller {
   tick(): Promise<void> {
     this.running ??= Promise.all(
       this.targets()
-        .filter((c) => !c.lastSeen || this.now() - c.lastSeen.getTime() >= this.intervalMs)
+        .filter((c) => c.online === false || !c.lastSeen || this.now() - c.lastSeen.getTime() >= this.intervalMs)
         .map((c) => this.checkAlive(c.serial).catch(() => undefined)),
     )
       .then(() => undefined)

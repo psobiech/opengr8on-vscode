@@ -282,5 +282,7 @@
   "OpenGr8on: found {0} CLUs not adopted by this project.": "OpenGr8on: znaleziono {0} CLU niedołączonych do tego projektu.",
   "Adopt…": "Dołącz…",
   "OpenGr8on: adopt a CLU into this project": "OpenGr8on: dołącz CLU do tego projektu",
-  "OpenGr8on: found {0} ({1}), {2}. Adopt it?": "OpenGr8on: znaleziono {0} ({1}), {2}. Dołączyć?"
+  "OpenGr8on: found {0} ({1}), {2}. Adopt it?": "OpenGr8on: znaleziono {0} ({1}), {2}. Dołączyć?",
+  "{0} project CLU(s): see the Project view": "{0} CLU projektu: zobacz widok Projekt",
+  "Device": "Urządzenie"
 }

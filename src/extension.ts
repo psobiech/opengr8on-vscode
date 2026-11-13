@@ -18,11 +18,11 @@ import { LivePoller } from "./device/liveValues";
 import { parseOmObjects } from "./project/omLuaObjects";
 import { CluRunner } from "./device/cluRunner";
 import { registerCluCommands } from "./views/cluCommands";
-import { DevicesTreeProvider, moduleNodeId, moduleReads, type DeviceNode } from "./views/devicesTree";
+import { DevicesTreeProvider, ioReads, moduleNodeId, moduleReads, type DeviceNode } from "./views/devicesTree";
 import { LogTerminals } from "./views/logTerminal";
 import { registerProjectCommands } from "./views/projectCommands";
 import { ProjectWatcher, findProjectRoot } from "./views/projectWatcher";
-import { ProjectTreeProvider } from "./views/projectTree";
+import { liveOwner, ProjectTreeProvider, type ProjectTreeNode } from "./views/projectTree";
 import { PLUGIN, luaStubs } from "./lua/stubs";
 import { PLUGIN_FILE, STUB_DIR, mergeLuarc } from "./lua/luarc";
 import { buildIndex, type ProjectIndex } from "./project/assist";
@@ -120,7 +120,9 @@ export function activate(context: vscode.ExtensionContext): void {
   void (async () => {
     // restored CLUs: show which key we hold
     for (const c of devices.all) if (!c.keySource) devices.patch(c.serial, { keySource: (await keys.cipherKeyFor(c.serial, projectScope())).source });
-  })().catch((e) => log.appendLine(`keys: ${(e as Error).message}`));
+  })()
+    .catch((e) => log.appendLine(`keys: ${(e as Error).message}`))
+    .finally(() => checkAliveNow());
 
   // Every answer (check alive, req:, TFTP, pushes) keeps online / lastSeen / MAC current.
   const arpTried = new Set<number>();
@@ -145,9 +147,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Background check alive of every CLU we can talk to (no module values: those only when expanded)
   const aliveSec = vscode.workspace.getConfiguration("opengr8on").get<number>("devices.checkAliveIntervalSec", 30);
+  let alive: AlivePoller | undefined;
+  /** A round right away (project loaded, keys changed): don't leave CLUs offline until the next one. */
+  const checkAliveNow = () => void alive?.tick();
   if (aliveSec > 0) {
-    const alive = new AlivePoller(
-      () => devices.all.filter((c) => reachable(c) && (c.keySource === "clu" || c.keySource === "project")),
+    // key source not resolved yet (undefined) is tried too: the runner looks the key up itself
+    alive = new AlivePoller(
+      () => devices.all.filter((c) => reachable(c) && c.keySource !== "none"),
       async (serial) => {
         const t = target(serial);
         if (typeof t !== "string") await runner.checkAlive(t.local, t.device);
@@ -155,7 +161,7 @@ export function activate(context: vscode.ExtensionContext): void {
       Math.max(5, aliveSec) * 1000,
     );
     alive.start();
-    context.subscriptions.push({ dispose: () => alive.stop() });
+    context.subscriptions.push({ dispose: () => alive?.stop() });
   }
 
   const status = new CluStatusBar(context.workspaceState, (serial) => devices.all.find((c) => c.serial === serial), (serial) => live.error(serial));
@@ -175,7 +181,14 @@ export function activate(context: vscode.ExtensionContext): void {
       const pick = await vscode.window.showQuickPick([...items, { label: `$(close) ${l10n.t("none")}`, description: "", serial: undefined }], { title: l10n.t("OpenGr8on: selected CLU") });
       if (!pick) return;
       status.select(pick.serial);
-      const node = pick.serial === undefined ? undefined : (await devices.getChildren()).find((n) => n.kind === "clu" && n.clu.serial === pick.serial);
+      if (pick.serial === undefined) return;
+      // project CLUs are listed in the Project view only
+      const inProject = projectTree.cluNode(pick.serial);
+      if (inProject) {
+        await projectView.reveal(inProject, { select: true, focus: false });
+        return;
+      }
+      const node = (await devices.getChildren()).find((n) => n.kind === "clu" && n.clu.serial === pick.serial);
       if (node) await devicesView.reveal(node, { select: true, focus: false });
     }),
   );
@@ -202,7 +215,6 @@ export function activate(context: vscode.ExtensionContext): void {
       const serial = n.kind === "clu" ? n.clu.serial : "serial" in n ? n.serial : undefined;
       if (serial !== undefined) status.select(serial);
     }),
-    devicesView.onDidChangeVisibility(({ visible }) => (visible ? live.resume() : live.pause())),
   );
 
   const logs = new LogTerminals();
@@ -262,6 +274,7 @@ export function activate(context: vscode.ExtensionContext): void {
     onModulesChanged: (serial) => devices.invalidate(serial),
     execute,
     afterChange: () => void live.tick(),
+    liveIo: (node) => projectTree.liveIo(node as ProjectTreeNode),
   });
 
   const selectInterface = async (): Promise<boolean> => {
@@ -386,6 +399,7 @@ export function activate(context: vscode.ExtensionContext): void {
           devices.patch(c.serial, { keySource: (await keys.cipherKeyFor(c.serial, projectScope())).source });
           devices.invalidate(c.serial);
         }
+        checkAliveNow();
         void vscode.window.showInformationMessage(msg);
       } catch (e) {
         void vscode.window.showErrorMessage(l10n.t("OpenGr8on: keys not imported: {0}", (e as Error).message));
@@ -486,8 +500,53 @@ export function activate(context: vscode.ExtensionContext): void {
   // Project (YAML + Lua): load + resolve with diagnostics; generate / upload use the resolved model.
   const registry = () => loadInterfaceRegistry(path.join(context.extensionPath, INTERFACES_DIR));
   let project: ProjectWatcher | undefined;
-  const projectTree = new ProjectTreeProvider(() => project?.root);
-  context.subscriptions.push(vscode.window.registerTreeDataProvider("opengr8on.project", projectTree));
+  // project CLUs get the live rows of the Devices view (modules, values, set / execute)
+  const projectTree = new ProjectTreeProvider(() => project?.root, {
+    devices,
+    onIoShown: (serial, owner, io) => {
+      const reads = ioReads(io);
+      if (reads.length) live.watch(serial, owner, reads);
+    },
+  });
+  const projectView = vscode.window.createTreeView<ProjectTreeNode>("opengr8on.project", { treeDataProvider: projectTree, showCollapseAll: true });
+  // live values are polled while either view shows them
+  const liveVisibility = () => (devicesView.visible || projectView.visible ? live.resume() : live.pause());
+  context.subscriptions.push(
+    projectView,
+    projectView.onDidCollapseElement(({ element: n }) => {
+      switch (n.kind) {
+        case "module":
+          live.unwatch(n.serial, moduleNodeId(n.serial, n.module));
+          break;
+        case "modules":
+          live.unwatchPrefix(n.serial, `clu:${n.serial}:`);
+          break;
+        case "projectIo":
+          live.unwatch(n.clu.serial, liveOwner(n.clu.serial, n.id));
+          break;
+        case "object":
+          live.unwatch(n.clu.serial, liveOwner(n.clu.serial, n.obj.id));
+          break;
+        case "group":
+          // only this group's rows (the other group may stay expanded)
+          for (const id of n.group === "ios" ? n.clu.modules.flatMap((m) => m.ios.map((io) => io.id)) : n.group === "objects" ? n.clu.objects.map((o) => o.id) : [])
+            live.unwatch(n.clu.serial, liveOwner(n.clu.serial, id));
+          break;
+        case "projectClu":
+          live.unwatchPrefix(n.clu.serial, `clu:${n.clu.serial}:`);
+          live.unwatchPrefix(n.clu.serial, liveOwner(n.clu.serial, ""));
+          break;
+      }
+    }),
+    projectView.onDidChangeSelection(({ selection }) => {
+      const n = selection[0];
+      if (!n) return;
+      const serial = n.kind === "projectClu" || n.kind === "projectIo" || n.kind === "object" || n.kind === "group" || n.kind === "device" ? n.clu.serial : "serial" in n ? n.serial : undefined;
+      if (serial !== undefined) status.select(serial);
+    }),
+    devicesView.onDidChangeVisibility(liveVisibility),
+    projectView.onDidChangeVisibility(liveVisibility),
+  );
   // LuaLS stubs: .opengr8on/luals/opengr8on.lua (git-ignored) + .luarc.json library entry.
   let lastStubs = "";
   const writeLuaStubs = async (w: ProjectWatcher) => {
@@ -539,12 +598,17 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
       w,
       w.onDidLoad((p) => {
+        // project CLUs' modules / objects come from the project: rebuild them from the new model
+        for (const c of p?.clus ?? []) if (devices.config(c.serial)) devices.invalidate(c.serial);
         projectTree.update(p, w.errorsByFile, w.resolved);
         // the project's CLUs / GATEs are listed (and usable) in the Devices view without discovery
         devices.setProject((p?.clus ?? []).map((c) => ({ serial: c.serial, ip: c.ip, name: c.name, gate: c.hw.type === GATE_HW_TYPE })));
         void (async () => {
           for (const c of devices.all) if (c.inProject && !c.keySource) devices.patch(c.serial, { keySource: (await keys.cipherKeyFor(c.serial, projectScope())).source });
-        })().catch((e) => log.appendLine(`keys: ${(e as Error).message}`));
+        })()
+          .catch((e) => log.appendLine(`keys: ${(e as Error).message}`))
+          // project CLUs (new ones never contacted) answer now, not after a full interval
+          .finally(() => checkAliveNow());
         try {
           projectIndex = buildIndex(w.resolved, registry());
           assist.refresh();

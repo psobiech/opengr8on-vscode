@@ -39,6 +39,8 @@ export interface CluCommandDeps {
   execute(serial: number, script: string): Promise<string>;
   /** Called after a set/execute so live values refresh right away. */
   afterChange(): void;
+  /** The live IO behind another view's row (Project view objects), for Execute Method. */
+  liveIo?(node: unknown): Promise<{ serial: number; io: IoView } | undefined>;
 }
 
 type Node = { kind: string; clu?: CluInfo } | undefined;
@@ -158,7 +160,14 @@ export function registerCluCommands(context: vscode.ExtensionContext, deps: CluC
       const script = `${id}:set(${f.index}, ${luaArg(f.type, input)})`;
       await runScript(node.serial, script);
     }),
-    vscode.commands.registerCommand("opengr8on.executeMethod", async (node?: { serial: number; io: IoView }) => {
+    vscode.commands.registerCommand("opengr8on.executeMethod", async (arg?: { serial?: number; io?: IoView }) => {
+      let node: { serial: number; io: IoView } | undefined;
+      try {
+        node = arg?.io && arg.serial !== undefined ? { serial: arg.serial, io: arg.io } : await deps.liveIo?.(arg);
+      } catch (e) {
+        void vscode.window.showErrorMessage(`OpenGr8on: ${(e as Error).message}`);
+        return;
+      }
       if (!node?.io.objectId) return;
       const { io } = node;
       const methods = io.methods.filter((m) => m.call === "set" || m.call === "execute");

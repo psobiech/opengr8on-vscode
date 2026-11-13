@@ -40,7 +40,10 @@ export const moduleNodeId = (serial: number, module: ModuleView) => (module.kind
 export const ioNodeId = (serial: number, module: ModuleView, io: IoView) =>
   module.kind ? `clu:${serial}:${module.kind}:${io.objectId}` : `clu:${serial}:mm:${module.serial}:${io.objectName}:${io.channel}`;
 
-/** `opengr8on.devices`: CLUs found on the network → discovery details + modules (CONFIG.JSON) → IOs. */
+/**
+ * `opengr8on.devices`: CLUs found on the network and not in the open project → discovery details +
+ * modules (CONFIG.JSON) → IOs. Project CLUs show the same rows in the Project view.
+ */
 export class DevicesTreeProvider implements vscode.TreeDataProvider<DeviceNode> {
   private clus: CluInfo[] = [];
   private readonly configs = new Map<number, Promise<CluConfigView>>();
@@ -183,7 +186,14 @@ export class DevicesTreeProvider implements vscode.TreeDataProvider<DeviceNode> 
   }
 
   async getChildren(node?: DeviceNode): Promise<DeviceNode[]> {
-    if (!node) return this.clus.map((clu) => ({ kind: "clu", clu }));
+    if (!node) {
+      // project CLUs live in the Project view (values, set / execute there); here: the others,
+      // i.e. CLUs to adopt / import
+      const others: DeviceNode[] = this.clus.filter((clu) => !clu.inProject).map((clu) => ({ kind: "clu", clu }));
+      const inProject = this.clus.length - others.length;
+      if (inProject && others.length === 0) return [{ kind: "message", text: l10n.t("{0} project CLU(s): see the Project view", inProject), error: false }];
+      return others;
+    }
     switch (node.kind) {
       case "clu": {
         const details: DeviceNode[] = cluDetails(node.clu, l10n.t).map(([label, value]) => ({ kind: "detail", label, value }));

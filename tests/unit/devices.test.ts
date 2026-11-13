@@ -3,7 +3,7 @@ import { CLUDevice, CipherType } from "opengr8on-node/client";
 import { cluDetails, cluObjectId, markSeen, mergeDiscovery, mergeProject, normalizeMac, reachable, rememberClus, restoreClus, toCluInfo, type CluInfo } from "../../src/device/cluInfo";
 import { macFromArp, macFromProcArp } from "../../src/device/arp";
 import type { CluConfigView } from "../../src/device/cluConfig";
-import { DevicesTreeProvider, ioReads } from "../../src/views/devicesTree";
+import { DevicesTreeProvider, ioReads, type DeviceNode } from "../../src/views/devicesTree";
 
 const t0 = new Date("2026-11-11T10:00:00Z");
 const clu = (serial: number, address: string, extra: Partial<CluInfo> = {}): CluInfo => ({
@@ -134,18 +134,22 @@ describe("DevicesTreeProvider", () => {
     expect(tree.seen(9, { address: "10.0.0.99" })).toBe(false); // project IP stays
     expect(tree.lost(9)).toBe(true);
     expect(tree.lost(9)).toBe(false);
-    expect(tree.getTreeItem((await tree.getChildren())[0]).description).toMatch(/^10\.0\.0\.9 · CLU9 \(offline, last seen .+\)$/);
+    expect(tree.getTreeItem({ kind: "clu", clu: tree.all[0] }).description).toMatch(/^10\.0\.0\.9 · CLU9 \(offline, last seen .+\)$/);
     await tree.loadConfigFor(9);
     expect(tree.all[0]).toMatchObject({ online: true, mac: "aa:bb:cc:dd:ee:ff" });
     expect(tree.seen(123)).toBe(false); // unknown serial
   });
 
-  it("shows project CLUs by name, usable (modules) without discovery", async () => {
+  it("knows project CLUs by name, usable (modules) without discovery, but lists them in the Project view", async () => {
     const tree = new DevicesTreeProvider(async () => ({ modules: [] }) as unknown as CluConfigView);
     tree.setProject([{ serial: 9, ip: "10.0.0.9", name: "MODBUS", gate: true }]);
-    const [root] = await tree.getChildren();
+    const root: DeviceNode = { kind: "clu", clu: tree.all[0] };
     expect(tree.getTreeItem(root)).toMatchObject({ label: "MODBUS", contextValue: "clu", description: "10.0.0.9 · CLU9 · GATE" });
     expect((await tree.getChildren(root)).some((n) => n.kind === "modules")).toBe(true);
+    // Devices lists only CLUs outside the project (to adopt / import)
+    expect((await tree.getChildren()).map((n) => tree.getTreeItem(n).label)).toEqual(["1 project CLU(s): see the Project view"]);
+    tree.update([clu(9, "10.0.0.9"), clu(3, "10.0.0.3")]);
+    expect((await tree.getChildren()).map((n) => tree.getTreeItem(n).label)).toEqual(["CLU3"]);
   });
 
   it("lists CLUs with details and marks offline ones", async () => {
