@@ -132,8 +132,8 @@ obiektu, które można ustawić (bez już wpisanych), a w `events:` — jego zda
 W bloku `features:` podpowiadane są wyłącznie cechy **tego konkretnego obiektu** (tu: CLU), które
 można ustawić — z numerem, typem, jednostką i dozwolonymi wartościami; po wpisaniu `Nazwa: `
 podpowiadane są dozwolone wartości. Cechy wyliczeniowe zapisuje się **nazwą**, nie liczbą:
-`Mode: Bistable`, `TimeZone: Europe/Warsaw` (liczba też zadziała; import z OM zapisuje nazwy). W innych miejscach — tylko klucze dozwolone w danym miejscu
-(`id`, `class`, `name`, …).
+`Mode: Bistable`, `TimeZone: Europe/Warsaw` (liczba też zadziała; import z OM zapisuje nazwy).
+W innych miejscach — tylko klucze dozwolone w danym kontekście (`id`, `class`, `name`, …).
 
 ![Podpowiedzi cech obiektu](img/03b-yaml-cechy.png)
 
@@ -220,7 +220,7 @@ Wygenerowany plik zawiera wszystko, czego używa Object Manager — łącznie z 
 
 ![Wygenerowany OM.LUA](img/09-om-lua.png)
 
-> Wysłanie zastępuje program CLU i restartuje je — wyjścia mogą się przełączyć w trakcie startu.
+> Wysłanie zastępuje program CLU i restartuje urządzenie — wyjścia mogą się przełączyć w trakcie startu.
 > Zacznij od jednego CLU i porównaj wcześniej (*Porównaj wygenerowane z CLU*).
 
 ## 9. Urządzenia w sieci
@@ -233,7 +233,7 @@ pod *Moduły* pochodzi z projektu: najpierw **samo CLU** (jego cechy: Uptime, Da
 moduły z obiektami i **obiekty wirtualne**; wartości są odczytywane na żywo z CLU.
 
 Wartości na żywo są pobierane **tylko dla rozwiniętych modułów** (także *samego CLU* i *obiektów
-wirtualnych*). CLU **wysyła je samo przy każdej zmianie** (subskrypcja `SYSTEM:clientRegister` na port
+wirtualnych*). CLU **wysyła je automatycznie przy każdej zmianie** (subskrypcja `SYSTEM:clientRegister` na port
 UDP tego komputera, jedna na obiekt, jak w Object Managerze) — bez ciągłego odpytywania. Rozwinięcie
 kolejnego modułu dodaje tylko jego obiekty; zwinięcie modułu, *Modułów* albo całego CLU kończy ich
 subskrypcje. Moduły rozwinięte przed ponownym uruchomieniem VS Code są subskrybowane od razu. Jeśli
@@ -245,7 +245,7 @@ i `opengr8on.liveValues.intervalMs`). Pojedyncza zgubiona odpowiedź nie jest zg
 czy działa*, odczyty, pobieranie i wysyłanie plików, wartości na żywo. Dodatkowo co 30 s w tle
 sprawdzane jest, czy każde CLU, do którego mamy klucz, działa (`checkAlive`; bez odczytu wartości
 modułów); CLU, które w tym czasie odpowiedziało na cokolwiek innego, nie jest pytane (ustawienie
-`opengr8on.devices.checkAliveIntervalSec`, 0 = wyłączone). CLU, które przestało odpowiadać, ma opis
+`opengr8on.devices.checkAliveIntervalSec`, 0 = wyłączone). CLU, które przestało odpowiadać, otrzymuje opis
 *offline, ostatnio widziane …* (także na pasku stanu). **MAC** pochodzi z wykrywania, z `CONFIG.JSON`
 albo — dla CLU znanych tylko z projektu — z tablicy ARP systemu (tylko Linux).
 

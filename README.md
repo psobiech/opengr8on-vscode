@@ -14,7 +14,7 @@ instalacji to pliki tekstowe (YAML + Lua), które edytujesz w VS Code i przechow
 
 **Stan: pierwsza kompletna wersja, jeszcze nie wypróbowana na sprzęcie.** Generator odtwarza pliki
 OM.LUA / USER.LUA Object Managera bajt w bajt dla wszystkich sprawdzonych prawdziwych plików (zob.
-[format OM.LUA](docs/OM_LUA_FORMAT.md)), gdzie opisane są też jeszcze nieznane konstrukcje.
+[format OM.LUA](docs/OM_LUA_FORMAT.md), gdzie opisano również jeszcze nieznane konstrukcje).
 
 - **Eksplorator urządzeń** (bez projektu): wykrywanie CLU, dołączanie do projektu (ustawienie
   klucza), sprawdzenie działania, restart, zmiana IP, odświeżenie modułów, moduły → wejścia/wyjścia
@@ -169,6 +169,6 @@ oprogramowania z urządzeniami objętymi gwarancją.
 Oprogramowanie jest dostarczane w stanie „takim, jaki jest” (as-is), bez jakichkolwiek gwarancji,
 wyraźnych ani dorozumianych, w tym między innymi bez gwarancji przydatności handlowej, przydatności
 do określonego celu ani nienaruszania praw osób trzecich. O ile wyraźnie nie zaznaczono inaczej,
-osoba która powiązała utwór z niniejszą adnotacją nie udziela żadnych gwarancji dotyczących tego
+osoba, która powiązała utwór z niniejszą adnotacją, nie udziela żadnych gwarancji dotyczących tego
 utworu i zrzeka się odpowiedzialności za wszelkie sposoby jego użycia, w najszerszym zakresie
 dopuszczalnym przez obowiązujące prawo.
