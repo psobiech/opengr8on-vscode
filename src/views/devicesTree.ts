@@ -148,6 +148,17 @@ export class DevicesTreeProvider implements vscode.TreeDataProvider<DeviceNode> 
     return true;
   }
 
+  /** Drops a CLU from the list (and its cached CONFIG.JSON); project CLUs stay. False if not dropped. */
+  forget(serial: number): boolean {
+    const i = this.clus.findIndex((c) => c.serial === serial && !c.inProject);
+    if (i < 0) return false;
+    this.clus.splice(i, 1);
+    this.configs.delete(serial);
+    this.loaded.delete(serial);
+    this.changed.fire(undefined);
+    return true;
+  }
+
   /** Forgets the cached CONFIG.JSON (after refresh modules, key change, ...); reloaded on expand. */
   invalidate(serial: number): void {
     this.configs.delete(serial);

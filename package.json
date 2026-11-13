@@ -231,6 +231,18 @@
         "title": "%command.deleteItem.title%",
         "category": "OpenGr8on",
         "icon": "$(trash)"
+      },
+      {
+        "command": "opengr8on.removeClu",
+        "title": "%command.removeClu.title%",
+        "category": "OpenGr8on",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "opengr8on.forgetClu",
+        "title": "%command.forgetClu.title%",
+        "category": "OpenGr8on",
+        "icon": "$(close)"
       }
     ],
     "menus": {
@@ -381,6 +393,16 @@
           "command": "opengr8on.deleteItem",
           "when": "view == opengr8on.project && viewItem =~ /^project(Object|Script)$/",
           "group": "9_delete"
+        },
+        {
+          "command": "opengr8on.forgetClu",
+          "when": "view == opengr8on.devices && viewItem =~ /^clu/",
+          "group": "9_keys"
+        },
+        {
+          "command": "opengr8on.removeClu",
+          "when": "view == opengr8on.project && viewItem == projectClu",
+          "group": "9_delete"
         }
       ],
       "commandPalette": [
@@ -434,6 +456,14 @@
         },
         {
           "command": "opengr8on.deleteItem",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.forgetClu",
+          "when": "false"
+        },
+        {
+          "command": "opengr8on.removeClu",
           "when": "false"
         }
       ],

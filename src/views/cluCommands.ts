@@ -35,6 +35,8 @@ export interface CluCommandDeps {
   onAddressChanged(serial: number, address: string): void;
   /** CONFIG.JSON may have changed (refresh modules): drop cached module lists. */
   onModulesChanged(serial: number): void;
+  /** After refresh modules: bring a project CLU's modules in line with what the CLU found. */
+  syncProjectModules?(serial: number, device: CLUDevice, local: string): Promise<void>;
   /** Runs a Lua expression on a CLU (`req:`). */
   execute(serial: number, script: string): Promise<string>;
   /** Called after a set/execute so live values refresh right away. */
@@ -135,6 +137,7 @@ export function registerCluCommands(context: vscode.ExtensionContext, deps: CluC
       deps.onModulesChanged(serial);
       deps.log.appendLine(`CLU${serial}: modules refreshed (CONFIG.JSON rewritten)`);
       void vscode.window.showInformationMessage(l10n.t("OpenGr8on: CLU{0} rescanned its modules.", serial));
+      await deps.syncProjectModules?.(serial, device, local);
     }),
     cluCommand("opengr8on.downloadFile", l10n.t("download"), async (serial, device, local) => {
       const name = await vscode.window.showQuickPick(Object.keys(DOWNLOADABLE), { title: l10n.t("Download from CLU{0}", serial) });

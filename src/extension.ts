@@ -14,6 +14,7 @@ import { KeyStore, parseKeysFile, pinToPrivateKey } from "./device/keyStore";
 import { INTERFACES_DIR, loadInterfaceRegistry } from "./interfaces/registry";
 import { CLUFiles } from "opengr8on-node/client";
 import { attachOmObjects, parseCluConfig } from "./device/cluConfig";
+import { syncModulesInCluYaml } from "./project/syncModules";
 import { LivePoller } from "./device/liveValues";
 import { parseOmObjects } from "./project/omLuaObjects";
 import { CluRunner } from "./device/cluRunner";
@@ -272,6 +273,49 @@ export function activate(context: vscode.ExtensionContext): void {
       devices.invalidate(serial);
     },
     onModulesChanged: (serial) => devices.invalidate(serial),
+    syncProjectModules: async (serial, device, local) => {
+      const w = project;
+      const src = w?.current?.clus.find((c) => c.serial === serial);
+      if (!w || !src) return; // not a project CLU: the device view reads CONFIG.JSON anyway
+      try {
+        const json = await runner.download(local, device, CLUFiles.CONFIG_JSON);
+        if (!json) throw new Error(l10n.t("CLU has no CONFIG.JSON"));
+        const cfg = parseCluConfig(json.toString("utf8"), registry());
+        const file = vscode.Uri.joinPath(w.root, src.file);
+        const text = Buffer.from(await vscode.workspace.fs.readFile(file)).toString("utf8");
+        const taken = new Set(src.modules.flatMap((m) => m.ios.map((io) => io.id)));
+        const sync = syncModulesInCluYaml(text, cfg, taken);
+        for (const s of sync.skipped) log.appendLine(`CLU${serial}: module not added to ${src.file} (no interface XML): ${s}`);
+        if (!sync.added.length && !sync.removed.length) return;
+        // object ids of the dropped IOs still named in scripts of this CLU
+        const re = new RegExp(`\\b(${sync.removedIds.filter((id) => /^\w+$/.test(id)).join("|")})\\b`);
+        const used = sync.removedIds.length ? src.scripts.filter((s) => re.test(s.source.replace(/--.*$/gm, ""))).map((s) => s.file) : [];
+        const go = l10n.t("Update project and upload");
+        const ok = await vscode.window.showWarningMessage(
+          l10n.t("CLU{0}: the project's modules differ from what the CLU found. Update {1} and upload it to the CLU?", serial, src.file),
+          {
+            modal: true,
+            detail: [
+              sync.removed.length ? l10n.t("Removed (not on the bus): {0}", sync.removed.join(", ")) : "",
+              sync.added.length ? l10n.t("Added (new IO object ids): {0}", sync.added.join(", ")) : "",
+              used.length ? l10n.t("IOs of removed modules are still used in: {0}", used.join(", ")) : "",
+              l10n.t("Live values need the new OM.LUA on the CLU; it restarts after the upload."),
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          },
+          go,
+        );
+        if (ok !== go) return;
+        await vscode.workspace.fs.writeFile(file, Buffer.from(sync.text, "utf8"));
+        log.appendLine(`CLU${serial}: ${src.file} modules synced (added ${sync.added.join(", ") || "-"}, removed ${sync.removed.join(", ") || "-"})`);
+        await w.reload();
+        devices.invalidate(serial);
+        await vscode.commands.executeCommand("opengr8on.uploadCluNow", src.name);
+      } catch (e) {
+        void vscode.window.showErrorMessage(l10n.t("OpenGr8on: CLU{0}: project modules not synced: {1}", serial, (e as Error).message));
+      }
+    },
     execute,
     afterChange: () => void live.tick(),
     liveIo: (node) => projectTree.liveIo(node as ProjectTreeNode),
@@ -469,6 +513,24 @@ export function activate(context: vscode.ExtensionContext): void {
         void vscode.window.showErrorMessage(`OpenGr8on: ${(e as Error).message}`);
       }
     }),
+    vscode.commands.registerCommand("opengr8on.forgetClu", async (node?: { kind: string; clu?: CluInfo }) => {
+      const clu = node?.clu;
+      if (!clu || clu.inProject) return;
+      const forget = l10n.t("Forget");
+      const ok = await vscode.window.showWarningMessage(
+        l10n.t("Forget {0}?", clu.name ?? `CLU${clu.serial}`),
+        { modal: true, detail: l10n.t("It is removed from this list until a discovery finds it again. Its stored keys stay (Forget Keys removes them).") },
+        forget,
+      );
+      if (ok !== forget) return;
+      live.unwatchPrefix(clu.serial, "");
+      discovered.delete(clu.serial);
+      adoptionDeclined.delete(clu.serial);
+      if (devices.forget(clu.serial)) {
+        remember();
+        log.appendLine(`forgot CLU${clu.serial}`);
+      }
+    }),
     vscode.commands.registerCommand("opengr8on.forgetCluKeys", async (node?: { kind: string; clu?: CluInfo }) => {
       const serial = node?.clu?.serial;
       if (serial === undefined) return;
@@ -593,6 +655,7 @@ export function activate(context: vscode.ExtensionContext): void {
     selectedSerial: () => status.selected,
   });
 
+  let projectSerials = new Set<number>();
   const watchProject = async (root: vscode.Uri) => {
     const w = new ProjectWatcher(root, log, registry);
     context.subscriptions.push(
@@ -600,6 +663,10 @@ export function activate(context: vscode.ExtensionContext): void {
       w.onDidLoad((p) => {
         // project CLUs' modules / objects come from the project: rebuild them from the new model
         for (const c of p?.clus ?? []) if (devices.config(c.serial)) devices.invalidate(c.serial);
+        // CLUs that left the project (Remove from Project): their Project-view rows are gone
+        const now = new Set((p?.clus ?? []).map((c) => c.serial));
+        for (const serial of projectSerials) if (!now.has(serial)) (live.unwatchPrefix(serial, ""), devices.invalidate(serial));
+        projectSerials = now;
         projectTree.update(p, w.errorsByFile, w.resolved);
         // the project's CLUs / GATEs are listed (and usable) in the Devices view without discovery
         devices.setProject((p?.clus ?? []).map((c) => ({ serial: c.serial, ip: c.ip, name: c.name, gate: c.hw.type === GATE_HW_TYPE })));

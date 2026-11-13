@@ -2,7 +2,7 @@
  * Small, format-preserving edits of project YAML (comments, flow style and order kept: yaml
  * Document API). Pure: text in, text out.
  */
-import { isMap, isSeq, parseDocument, YAMLSeq } from "yaml";
+import { isMap, isScalar, isSeq, parseDocument, YAMLSeq } from "yaml";
 
 export const LUA_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -64,5 +64,22 @@ export function removeFromCluYaml(text: string, list: "objects" | "scripts", nam
   if (i < 0) throw new Error(`${nameOrId} not found in ${list}:`);
   seq.items.splice(i, 1);
   if (seq.items.length === 0) doc.delete(list);
+  return doc.toString({ lineWidth: 0 });
+}
+
+/**
+ * Drops CLU `name` from the `clu.remotes:` list of a clus/<CLU>.yaml. Unchanged text when it is not
+ * listed (or there is no explicit list: the default "all other CLUs" follows the project). An
+ * emptied list stays as `remotes: []` (no remotes), not removed (that would mean all of them).
+ */
+export function removeRemoteFromCluYaml(text: string, name: string): string {
+  const doc = parseDocument(text);
+  if (doc.errors.length) throw new Error(`the CLU file has YAML errors: ${doc.errors[0].message.split("\n")[0]}`);
+  const seq = doc.getIn(["clu", "remotes"], true);
+  if (!isSeq(seq)) return text;
+  const before = seq.items.length;
+  seq.items = seq.items.filter((s) => !(isScalar(s) && s.value === name));
+  if (seq.items.length === before) return text;
+  if (seq.items.length === 0) seq.flow = true;
   return doc.toString({ lineWidth: 0 });
 }

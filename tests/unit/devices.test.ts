@@ -150,6 +150,9 @@ describe("DevicesTreeProvider", () => {
     expect((await tree.getChildren()).map((n) => tree.getTreeItem(n).label)).toEqual(["1 project CLU(s): see the Project view"]);
     tree.update([clu(9, "10.0.0.9"), clu(3, "10.0.0.3")]);
     expect((await tree.getChildren()).map((n) => tree.getTreeItem(n).label)).toEqual(["CLU3"]);
+    expect(tree.forget(9)).toBe(false); // project CLUs are removed from the project, not forgotten
+    expect(tree.forget(3)).toBe(true);
+    expect(tree.all.map((c) => c.serial)).toEqual([9]);
   });
 
   it("lists CLUs with details and marks offline ones", async () => {

@@ -41,5 +41,7 @@
   "config.generate.lineEndings.description": "Line endings of generated OM.LUA / USER.LUA (Object Manager writes its platform's). Use the one of the Object Manager you compare with.",
   "config.generate.lineEndings.enum.0": "Like Object Manager on Windows",
   "config.generate.lineEndings.enum.1": "Like Object Manager on Linux",
-  "config.discovery.proposeAdoption.description": "After **Discover CLUs**, offer to adopt CLUs that do not answer under this project's key (new CLUs, or CLUs holding another project key)."
+  "config.discovery.proposeAdoption.description": "After **Discover CLUs**, offer to adopt CLUs that do not answer under this project's key (new CLUs, or CLUs holding another project key).",
+  "command.removeClu.title": "Remove CLU from Project",
+  "command.forgetClu.title": "Forget CLU"
 }

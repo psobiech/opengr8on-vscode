@@ -41,5 +41,7 @@
   "config.generate.lineEndings.description": "Końce linii w generowanych OM.LUA / USER.LUA (Object Manager zapisuje takie, jak jego system). Wybierz te, których używa Object Manager, z którym porównujesz.",
   "config.generate.lineEndings.enum.0": "Jak Object Manager na Windows",
   "config.generate.lineEndings.enum.1": "Jak Object Manager na Linuksie",
-  "config.discovery.proposeAdoption.description": "Po **Wykryj CLU** proponuj dołączenie CLU, które nie odpowiadają kluczem tego projektu (nowe CLU albo CLU z kluczem innego projektu)."
+  "config.discovery.proposeAdoption.description": "Po **Wykryj CLU** proponuj dołączenie CLU, które nie odpowiadają kluczem tego projektu (nowe CLU albo CLU z kluczem innego projektu).",
+  "command.removeClu.title": "Usuń CLU z projektu",
+  "command.forgetClu.title": "Zapomnij CLU"
 }

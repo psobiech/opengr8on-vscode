@@ -12,9 +12,9 @@ import { parseOmLua } from "../project/omLuaParse";
 import { skeletonFromConfig } from "../project/skeleton";
 import { cluToYaml } from "../project/toYaml";
 import { buildIndex } from "../project/assist";
-import { LUA_IDENTIFIER, addObjectToCluYaml, addScriptToCluYaml, removeFromCluYaml, scriptTemplate } from "../project/edit";
+import { LUA_IDENTIFIER, addObjectToCluYaml, addScriptToCluYaml, removeFromCluYaml, removeRemoteFromCluYaml, scriptTemplate } from "../project/edit";
 import { allocateId } from "../project/skeleton";
-import { findUsages } from "../project/remove";
+import { clearedClu, findCluUsages, findUsages, type Usage } from "../project/remove";
 import { friendlyAction } from "../project/friendly";
 import { parseUserLua } from "../project/userLuaParse";
 import { findProjectRoot, type ProjectWatcher } from "./projectWatcher";
@@ -51,6 +51,15 @@ export interface ProjectCommandDeps {
   execute(serial: number, script: string): Promise<string>;
   /** Files were (maybe partly) uploaded to a CLU: drop views cached from its old OM.LUA / CONFIG.JSON. */
   uploaded(serial: number): void;
+}
+
+/** Moves a project file / folder to the trash (deleted where there is no trash). */
+async function trash(uri: vscode.Uri, recursive = false): Promise<void> {
+  try {
+    await vscode.workspace.fs.delete(uri, { useTrash: true, recursive });
+  } catch {
+    await vscode.workspace.fs.delete(uri, { useTrash: false, recursive });
+  }
 }
 
 /** CLU name from a script path inside the project (scripts/<CLU>/<file>.lua). */
@@ -91,6 +100,168 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
     diffChanged.fire(uri);
     return uri;
   };
+
+  /** Uploads MAIN / OM / USER.LUA (verified) and resets; the result line for the log / message. */
+  const uploadAndReset = async (
+    clu: Clu,
+    { om, user, main }: { om: Buffer; user: Buffer; main: Buffer },
+    progress: vscode.Progress<{ message?: string }>,
+  ): Promise<{ text: string; ok: boolean }> => {
+    const serial = serialOf(clu);
+    const local = deps.localAddress();
+    const device = deps.discovered(serial) ?? new CLUDevice({ serialNumber: serial, address: clu.ip });
+    try {
+      progress.report({ message: l10n.t("{0}: uploading ({1} + {2} bytes)…", clu.name, om.length, user.length) });
+      await deps.runner.upload(local, device, [
+        { file: CLUFiles.OM_LUA, content: om },
+        { file: CLUFiles.USER_LUA, content: user },
+        { file: CLUFiles.MAIN_LUA, content: main }, // as OM: without it the CLU never runs OM.LUA
+      ]);
+      progress.report({ message: l10n.t("{0}: restarting…", clu.name) });
+      const back = await deps.runner.reset(local, device);
+      return { ok: back, text: back ? l10n.t("{0}: uploaded and verified, running again", clu.name) : l10n.t("{0}: uploaded and verified, but not answering 30 s after the restart", clu.name) };
+    } catch (e) {
+      return { ok: false, text: l10n.t("{0}: FAILED: {1}", clu.name, (e as Error).message) };
+    } finally {
+      deps.uploaded(serial); // the Devices view re-reads OM.LUA: IOs get their new object ids
+    }
+  };
+
+  /**
+   * Uploads one CLU of the saved project and resets it, without a prompt of its own (the caller
+   * asked, or the CLU had no program): IO object ids just written to the YAML exist on the CLU only
+   * once its OM.LUA declares them, so live get/set need this right after an import / module sync.
+   */
+  const uploadNow = async (name: string): Promise<boolean> => {
+    const r = await deps.resolvedProject();
+    const clu = r?.clus.find((c) => c.name === name);
+    if (!clu) return false;
+    let files: { om: Buffer; user: Buffer; main: Buffer };
+    try {
+      files = buildFiles(clu, deps.eol());
+    } catch (e) {
+      void vscode.window.showErrorMessage(`OpenGr8on: ${(e as Error).message}`);
+      return false;
+    }
+    const res = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: l10n.t("OpenGr8on: upload"), cancellable: false }, (progress) =>
+      uploadAndReset(clu, files, progress),
+    );
+    deps.log.appendLine(`upload ${res.text}`);
+    if (!res.ok) {
+      deps.log.show(true);
+      void vscode.window.showErrorMessage(`OpenGr8on: ${res.text}`);
+    } else void vscode.window.showInformationMessage(`OpenGr8on: ${res.text}.`);
+    return res.ok;
+  };
+
+  /** "still used in N place(s)" (modal, first 12 lines) → quick pick of the usages → jump. */
+  const showUsages = async (watcher: ProjectWatcher, name: string, usages: Usage[]): Promise<void> => {
+    // show the referring source line (open editors first: the check followed unsaved edits)
+    const lines = new Map<string, string[]>();
+    for (const u of usages) {
+      if (!lines.has(u.file)) {
+        const uri = vscode.Uri.joinPath(watcher.root, ...u.file.split("/"));
+        const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
+        lines.set(u.file, (open?.getText() ?? new TextDecoder().decode(await vscode.workspace.fs.readFile(uri))).split(/\r?\n/));
+      }
+      u.text = lines.get(u.file)?.[u.line]?.trim() || u.text;
+    }
+    const show = l10n.t("Show Usages");
+    const more = usages.length > 12 ? `\n…` : "";
+    const pick = await vscode.window.showWarningMessage(
+      l10n.t("{0} is still used in {1} place(s). Remove those uses first.", name, usages.length),
+      { modal: true, detail: usages.slice(0, 12).map((u) => `${u.file}:${u.line + 1}  ${u.text}`).join("\n") + more },
+      show,
+    );
+    if (pick !== show) return;
+    const go = await vscode.window.showQuickPick(
+      usages.map((u) => ({ label: `${u.file}:${u.line + 1}`, detail: u.text, u })),
+      { title: l10n.t("Usages of {0}", name), matchOnDetail: true },
+    );
+    if (go) {
+      const at = new vscode.Range(go.u.line, go.u.col, go.u.line, go.u.col);
+      await vscode.window.showTextDocument(vscode.Uri.joinPath(watcher.root, ...go.u.file.split("/")), { selection: at });
+    }
+  };
+
+  context.subscriptions.push(
+    // internal (not in package.json): Refresh Modules after a project module sync
+    vscode.commands.registerCommand("opengr8on.uploadCluNow", (name: string) => uploadNow(name)),
+    vscode.commands.registerCommand("opengr8on.removeClu", async (node?: { kind: string; clu?: { name: string } }) => {
+      const watcher = await deps.project();
+      if (!watcher?.current || node?.kind !== "projectClu" || !node.clu) return;
+      const clu = watcher.current.clus.find((c) => c.name === node.clu!.name);
+      if (!clu) return;
+      try {
+        // the check runs on what the editors show; the edits below go to disk
+        const unsaved = vscode.workspace.textDocuments.filter((d) => d.isDirty && d.uri.path.startsWith(watcher.root.path + "/") && /\/(clus|scripts)\//.test(d.uri.path));
+        if (unsaved.length) throw new Error(l10n.t("save {0} first", unsaved.map((d) => vscode.workspace.asRelativePath(d.uri)).join(", ")));
+        const usages = findCluUsages(watcher.current, deps.registry(), clu.name);
+        if (usages.length) {
+          await showUsages(watcher, clu.name, usages);
+          return;
+        }
+        const listing = watcher.current.clus.filter((c) => c !== clu && c.remotes?.some((r) => r.kind === "clu" && r.name === clu.name));
+        const remove = l10n.t("Remove");
+        const clearAndRemove = l10n.t("Clear CLU and Remove");
+        const ok = await vscode.window.showWarningMessage(
+          l10n.t("Remove {0} ({1}) from the project?", clu.name, clu.id),
+          {
+            modal: true,
+            detail: [
+              l10n.t("Nothing in the other CLUs uses it. {0} and its {1} script(s) are moved to the trash.", clu.file, clu.scripts.length),
+              listing.length ? l10n.t("It is also dropped from the remotes of {0}.", listing.map((c) => c.name).join(", ")) : "",
+              l10n.t(
+                "Remove: the CLU keeps running its current program. Clear CLU and Remove: it first gets a program without logic (its modules stay declared; no events, virtual objects, variables, scripts or remotes) and restarts.",
+              ),
+              l10n.t("Generate and upload the other CLUs afterwards so they stop declaring it."),
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+          },
+          remove,
+          clearAndRemove,
+        );
+        if (ok !== remove && ok !== clearAndRemove) return;
+        if (ok === clearAndRemove) {
+          // before any file is touched: a failed clear leaves the project as it was
+          const cleared = clearedClu(watcher.current, deps.registry(), clu.name);
+          const files = buildFiles(cleared, deps.eol());
+          const r = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: l10n.t("OpenGr8on: clearing {0}", clu.name) }, (progress) =>
+            uploadAndReset(cleared, files, progress),
+          );
+          deps.log.appendLine(`clear ${r.text}`);
+          if (!r.ok) {
+            const anyway = l10n.t("Remove Anyway");
+            const go = await vscode.window.showErrorMessage(l10n.t("OpenGr8on: clearing {0} failed: {1}", clu.name, r.text), { modal: true }, anyway);
+            if (go !== anyway) return;
+          }
+        }
+        const errorsBefore = watcher.errorCount;
+        for (const c of listing) {
+          const uri = vscode.Uri.joinPath(watcher.root, ...c.file.split("/"));
+          await vscode.workspace.fs.writeFile(uri, enc(removeRemoteFromCluYaml(new TextDecoder().decode(await vscode.workspace.fs.readFile(uri)), clu.name)));
+        }
+        for (const s of clu.scripts) {
+          const file = vscode.Uri.joinPath(watcher.root, ...s.file.split("/"));
+          if (await exists(file)) await trash(file);
+        }
+        // scripts/<CLU>/ goes too once empty (README, notes, ... are kept)
+        const dir = vscode.Uri.joinPath(watcher.root, "scripts", clu.name);
+        if ((await exists(dir)) && (await vscode.workspace.fs.readDirectory(dir)).length === 0) await trash(dir, true);
+        await trash(vscode.Uri.joinPath(watcher.root, ...clu.file.split("/")));
+        await watcher.reload();
+        // anything the edits missed shows up as new errors: say so instead of leaving them silent
+        if (watcher.errorCount > errorsBefore) {
+          void vscode.window.showWarningMessage(l10n.t("OpenGr8on: {0} removed, but the project now has {1} error(s); see the Problems panel.", clu.name, watcher.errorCount));
+          void vscode.commands.executeCommand("workbench.actions.view.problems");
+        }
+        deps.log.appendLine(`removed CLU ${clu.name} (${clu.id}) from the project${listing.length ? `; dropped from the remotes of ${listing.map((c) => c.name).join(", ")}` : ""}`);
+      } catch (e) {
+        void vscode.window.showErrorMessage(`OpenGr8on: ${(e as Error).message}`);
+      }
+    }),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("opengr8on.newProject", async () => {
@@ -231,33 +402,8 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
         const unsaved = vscode.workspace.textDocuments.find((d) => d.isDirty && d.uri.toString() === yamlUri.toString());
         if (unsaved) throw new Error(l10n.t("save {0} first", clu.file));
         const usages = findUsages(watcher.current, deps.registry(), { clu: clu.name, kind, name });
-        // show the referring source line (open editors first: the check followed unsaved edits)
-        const lines = new Map<string, string[]>();
-        for (const u of usages) {
-          if (!lines.has(u.file)) {
-            const uri = vscode.Uri.joinPath(watcher.root, ...u.file.split("/"));
-            const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
-            lines.set(u.file, (open?.getText() ?? new TextDecoder().decode(await vscode.workspace.fs.readFile(uri))).split(/\r?\n/));
-          }
-          u.text = lines.get(u.file)?.[u.line]?.trim() || u.text;
-        }
         if (usages.length) {
-          const show = l10n.t("Show Usages");
-          const more = usages.length > 12 ? `\n…` : "";
-          const pick = await vscode.window.showWarningMessage(
-            l10n.t("{0} is still used in {1} place(s). Remove those uses first.", name, usages.length),
-            { modal: true, detail: usages.slice(0, 12).map((u) => `${u.file}:${u.line + 1}  ${u.text}`).join("\n") + more },
-            show,
-          );
-          if (pick !== show) return;
-          const go = await vscode.window.showQuickPick(
-            usages.map((u) => ({ label: `${u.file}:${u.line + 1}`, detail: u.text, u })),
-            { title: l10n.t("Usages of {0}", name), matchOnDetail: true },
-          );
-          if (go) {
-            const at = new vscode.Range(go.u.line, go.u.col, go.u.line, go.u.col);
-            await vscode.window.showTextDocument(vscode.Uri.joinPath(watcher.root, ...go.u.file.split("/")), { selection: at });
-          }
+          await showUsages(watcher, name, usages);
           return;
         }
         const script = kind === "script" ? clu.scripts.find((s) => s.name === name) : undefined;
@@ -271,12 +417,7 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
         const yaml = new TextDecoder().decode(await vscode.workspace.fs.readFile(yamlUri));
         await vscode.workspace.fs.writeFile(yamlUri, enc(removeFromCluYaml(yaml, kind === "object" ? "objects" : "scripts", name)));
         if (script) {
-          const file = vscode.Uri.joinPath(watcher.root, ...script.file.split("/"));
-          try {
-            await vscode.workspace.fs.delete(file, { useTrash: true });
-          } catch {
-            await vscode.workspace.fs.delete(file, { useTrash: false });
-          }
+          await trash(vscode.Uri.joinPath(watcher.root, ...script.file.split("/")));
         }
         await watcher.reload();
         deps.log.appendLine(`deleted ${kind} ${clu.name}/${name}`);
@@ -385,6 +526,7 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
         let clu: Clu;
         const notes: string[] = [];
         let rawUser: Buffer | undefined;
+        let freshIds = false; // object ids made up here: the CLU learns them only from an upload
         if (result.om && result.om.length > 0) {
           clu = parseOmLua(result.om.toString("utf8")).clu;
           if (result.user) {
@@ -399,7 +541,8 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
           const cfg = await deps.loadConfig(serial);
           const sk = skeletonFromConfig(cfg, { name: `CLU_${serial}`, ip: device.address ?? "0.0.0.0", taken });
           clu = sk.clu;
-          notes.push("no OM.LUA on the CLU: skeleton from CONFIG.JSON with new object ids");
+          freshIds = true;
+          notes.push("no OM.LUA on the CLU: skeleton from CONFIG.JSON with new object ids, uploaded");
           if (sk.skipped.length) notes.push(`skipped (no interface XML): ${sk.skipped.join(", ")}`);
         }
 
@@ -431,6 +574,7 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
         for (const n of notes) deps.log.appendLine(`import CLU${serial}: ${n}`);
         await watcher.reload();
         await vscode.window.showTextDocument(file);
+        if (freshIds) await uploadNow(name); // the CLU ran no program: nothing to lose, IOs live at once
         void vscode.window.showInformationMessage(l10n.t("OpenGr8on: imported CLU{0} as clus/{1}.yaml.", serial, name) + (notes.length ? ` ${l10n.t("{0} note(s) in the output.", notes.length)}` : ""));
       } catch (e) {
         void vscode.window.showErrorMessage(l10n.t("OpenGr8on: import of CLU{0} failed: {1}", serial, (e as Error).message));
@@ -525,28 +669,9 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
       );
       if (ok !== upload) return;
 
-      const local = deps.localAddress();
       const results: Array<{ text: string; ok: boolean }> = [];
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: l10n.t("OpenGr8on: upload"), cancellable: false }, async (progress) => {
-        for (const { clu, om, user, main } of files) {
-          const serial = serialOf(clu);
-          const device = deps.discovered(serial) ?? new CLUDevice({ serialNumber: serial, address: clu.ip });
-          try {
-            progress.report({ message: l10n.t("{0}: uploading ({1} + {2} bytes)…", clu.name, om.length, user.length) });
-            await deps.runner.upload(local, device, [
-              { file: CLUFiles.OM_LUA, content: om },
-              { file: CLUFiles.USER_LUA, content: user },
-              { file: CLUFiles.MAIN_LUA, content: main }, // as OM: without it the CLU never runs OM.LUA
-            ]);
-            progress.report({ message: l10n.t("{0}: restarting…", clu.name) });
-            const back = await deps.runner.reset(local, device);
-            results.push({ ok: back, text: back ? l10n.t("{0}: uploaded and verified, running again", clu.name) : l10n.t("{0}: uploaded and verified, but not answering 30 s after the restart", clu.name) });
-          } catch (e) {
-            results.push({ ok: false, text: l10n.t("{0}: FAILED: {1}", clu.name, (e as Error).message) });
-          } finally {
-            deps.uploaded(serial); // the Devices view re-reads OM.LUA: IOs get their new object ids
-          }
-        }
+        for (const { clu, ...f } of files) results.push(await uploadAndReset(clu, f, progress));
       });
       for (const l of results) deps.log.appendLine(`upload ${l.text}`);
       const failed = results.filter((l) => !l.ok);
