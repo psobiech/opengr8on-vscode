@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { l10n } from "vscode";
 import * as path from "node:path";
 import { CLUDevice, type CipherKey } from "opengr8on-node/client";
-import { adoptClu } from "./device/adopt";
+import { adoptClu, adoptionCandidates, dropAnswering, type AdoptionCandidate } from "./device/adopt";
 import { discoverClus, interfaceChoices, pickInterface, type LocalInterface } from "./device/discovery";
 import { reachable, rememberClus, restoreClus, toCluInfo, type CluInfo } from "./device/cluInfo";
 import { projectCluView } from "./device/projectView";
@@ -48,6 +48,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Last discovery: devices (with their discovery iv, needed to adopt) and the interface used.
   const discovered = new Map<number, CLUDevice>();
+  // CLUs whose adoption proposal was declined ("Not now"): not proposed again this session.
+  const adoptionDeclined = new Set<number>();
   let discoveryIface: LocalInterface | undefined;
   // Project CLUs need no discovery: a device from the project IP, the configured network interface.
   const projectDevices = new Map<number, CLUDevice>();
@@ -276,6 +278,60 @@ export function activate(context: vscode.ExtensionContext): void {
     return true;
   };
 
+  /**
+   * After a discovery: offer to adopt CLUs that do not answer under this project's key (new ones,
+   * or ones holding another project key). One CLU: Adopt / Not now; several: a quick pick.
+   * Declined CLUs are not proposed again this session. Off with opengr8on.discovery.proposeAdoption.
+   */
+  const proposeAdoption = async (found: CLUDevice[]): Promise<void> => {
+    if (!projectScope() || !vscode.workspace.getConfiguration("opengr8on").get<boolean>("discovery.proposeAdoption", true)) return;
+    const iface = discoveryIface;
+    if (!iface) return;
+    // check alive under the key we have for it (CLU or project key); run(), not checkAlive(): a
+    // CLU that does not answer must not be marked offline
+    const candidates = await dropAnswering(adoptionCandidates(found, adoptionDeclined), async (serial) => {
+      const device = discovered.get(serial);
+      if (!device || (await keys.cipherKeyFor(serial, projectScope())).source === "none") return null;
+      return runner.run(iface.address, device, (c) => c.checkAlive());
+    });
+    if (candidates.length === 0) return;
+    const nameOf = (c: AdoptionCandidate): string => devices.all.find((x) => x.serial === c.serial)?.name ?? `CLU${c.serial}`;
+    const adopt = l10n.t("Adopt");
+    const notNow = l10n.t("Not now");
+    const describe = (c: AdoptionCandidate): string =>
+      c.reason === "rekey" ? l10n.t("holds another project key") : l10n.t("not in this project");
+    let picked: AdoptionCandidate | undefined;
+    if (candidates.length === 1) {
+      const c = candidates[0];
+      const action = await vscode.window.showInformationMessage(
+        l10n.t("OpenGr8on: found {0} ({1}), {2}. Adopt it?", nameOf(c), c.address, describe(c)),
+        adopt,
+        notNow,
+      );
+      if (action === adopt) picked = c;
+    } else {
+      const action = await vscode.window.showInformationMessage(
+        l10n.t("OpenGr8on: found {0} CLUs not adopted by this project.", candidates.length),
+        l10n.t("Adopt…"),
+        notNow,
+      );
+      if (action === l10n.t("Adopt…")) {
+        const item = await vscode.window.showQuickPick(
+          candidates.map((c) => ({ label: nameOf(c), description: `CLU${c.serial} · ${c.address}`, detail: describe(c), c })),
+          { title: l10n.t("OpenGr8on: adopt a CLU into this project") },
+        );
+        picked = item?.c;
+        if (!picked) return; // closed: ask again on the next discovery
+      }
+    }
+    if (!picked) {
+      for (const c of candidates) adoptionDeclined.add(c.serial);
+      return;
+    }
+    const clu = devices.all.find((x) => x.serial === picked!.serial);
+    if (clu) await vscode.commands.executeCommand("opengr8on.adoptClu", { kind: "clu", clu });
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand("opengr8on.selectInterface", selectInterface),
     vscode.commands.registerCommand("opengr8on.discover", async () => {
@@ -298,6 +354,7 @@ export function activate(context: vscode.ExtensionContext): void {
         devices.update(infos);
         remember();
         if (found.length === 0) void vscode.window.showInformationMessage(l10n.t("OpenGr8on: no CLU answered on {0} ({1}).", iface.name, iface.address));
+        void proposeAdoption(found);
       } catch (e) {
         const action = await vscode.window.showErrorMessage(l10n.t("OpenGr8on: discovery failed: {0}", (e as Error).message), l10n.t("Select Network Interface"));
         if (action && (await selectInterface())) await vscode.commands.executeCommand("opengr8on.discover");
@@ -552,6 +609,7 @@ export function activate(context: vscode.ExtensionContext): void {
     loadConfig: (serial) => devices.loadConfigFor(serial),
     keys,
     execute,
+    uploaded: (serial) => devices.invalidate(serial),
   });
 
   log.appendLine("OpenGr8on activated");

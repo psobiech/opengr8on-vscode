@@ -1,4 +1,4 @@
-import { CLUClient, CLUDevice, CipherKey } from "opengr8on-node/client";
+import { CLUClient, CLUDevice, CipherKey, CipherType } from "opengr8on-node/client";
 import type { KeyStore } from "./keyStore";
 
 /** What adoption needs from a CLU client (CLUClient satisfies it; tests inject a fake). */
@@ -66,4 +66,43 @@ export async function adoptClu(opts: AdoptOptions): Promise<AdoptResult> {
   } finally {
     client.close();
   }
+}
+
+/** A discovered CLU this project could adopt. */
+export interface AdoptionCandidate {
+  serial: number;
+  address: string;
+  /**
+   * `new`: no PIN stored for it, never adopted by this project. `rekey`: PIN known, but the CLU
+   * holds another project key (adopted by Object Manager / another project, or reset).
+   */
+  reason: "new" | "rekey";
+}
+
+/**
+ * CLUs from a discovery whose discovery cipher check does not show this project's key (see
+ * opengr8on-node getCipherType): PROJECT = adopted, UNKNOWN = no PIN stored, NONE = PIN stored
+ * but another project key. `skip`: serials the user declined this session.
+ */
+export function adoptionCandidates(found: readonly CLUDevice[], skip: ReadonlySet<number> = new Set()): AdoptionCandidate[] {
+  const out: AdoptionCandidate[] = [];
+  for (const d of found) {
+    if (d.serialNumber == null || !d.address || !d.iv || skip.has(d.serialNumber)) continue;
+    if (d.cipherType === CipherType.PROJECT) continue;
+    out.push({ serial: d.serialNumber, address: d.address, reason: d.cipherType === CipherType.NONE ? "rekey" : "new" });
+  }
+  return out.sort((a, b) => a.serial - b.serial);
+}
+
+/**
+ * Drops candidates that already answer `probe` (check alive under the key we would use for them):
+ * the discovery check needs the CLU's PIN and can miss adopted CLUs (keys imported without a PIN,
+ * a vCLU hashing the discovery random differently). Probe errors / no answer keep the candidate.
+ */
+export async function dropAnswering(
+  candidates: readonly AdoptionCandidate[],
+  probe: (serial: number) => Promise<boolean | null>,
+): Promise<AdoptionCandidate[]> {
+  const answers = await Promise.all(candidates.map((c) => probe(c.serial).catch(() => null)));
+  return candidates.filter((_, i) => answers[i] !== true);
 }

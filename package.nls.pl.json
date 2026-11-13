@@ -40,5 +40,6 @@
   "config.liveValues.push.description": "CLU same wysyłają zmienione wartości (SYSTEM:clientRegister na port UDP tego komputera) zamiast odpytywania; CLU, którego wiadomości nie docierają (np. blokuje je zapora), jest odpytywane.",
   "config.generate.lineEndings.description": "Końce linii w generowanych OM.LUA / USER.LUA (Object Manager zapisuje takie, jak jego system). Wybierz te, których używa Object Manager, z którym porównujesz.",
   "config.generate.lineEndings.enum.0": "Jak Object Manager na Windows",
-  "config.generate.lineEndings.enum.1": "Jak Object Manager na Linuksie"
+  "config.generate.lineEndings.enum.1": "Jak Object Manager na Linuksie",
+  "config.discovery.proposeAdoption.description": "Po **Wykryj CLU** proponuj dołączenie CLU, które nie odpowiadają kluczem tego projektu (nowe CLU albo CLU z kluczem innego projektu)."
 }

@@ -487,6 +487,11 @@
           ],
           "default": "crlf",
           "description": "%config.generate.lineEndings.description%"
+        },
+        "opengr8on.discovery.proposeAdoption": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.discovery.proposeAdoption.description%"
         }
       }
     },

@@ -49,6 +49,8 @@ export interface ProjectCommandDeps {
   keys: KeyStore;
   /** Runs a Lua expression on a CLU (`req:`), via the runner queue. */
   execute(serial: number, script: string): Promise<string>;
+  /** Files were (maybe partly) uploaded to a CLU: drop views cached from its old OM.LUA / CONFIG.JSON. */
+  uploaded(serial: number): void;
 }
 
 /** CLU name from a script path inside the project (scripts/<CLU>/<file>.lua). */
@@ -541,6 +543,8 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
             results.push({ ok: back, text: back ? l10n.t("{0}: uploaded and verified, running again", clu.name) : l10n.t("{0}: uploaded and verified, but not answering 30 s after the restart", clu.name) });
           } catch (e) {
             results.push({ ok: false, text: l10n.t("{0}: FAILED: {1}", clu.name, (e as Error).message) });
+          } finally {
+            deps.uploaded(serial); // the Devices view re-reads OM.LUA: IOs get their new object ids
           }
         }
       });

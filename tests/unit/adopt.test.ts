@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { CLUDevice, CipherKey } from "opengr8on-node/client";
-import { adoptClu, type AdoptClient } from "../../src/device/adopt";
+import { CLUDevice, CipherKey, CipherType } from "opengr8on-node/client";
+import { adoptClu, adoptionCandidates, dropAnswering, type AdoptClient } from "../../src/device/adopt";
 import { KeyStore, type SecretBackend } from "../../src/device/keyStore";
 
 class MemorySecrets implements SecretBackend {
@@ -69,5 +69,39 @@ describe("adoptClu", () => {
     const keys = new KeyStore(new MemorySecrets());
     const d = new CLUDevice({ serialNumber: 1, address: "10.0.0.1" });
     await expect(adoptClu({ device: d, privateKey: Buffer.from("TESTPIN1"), scope: SCOPE, keys, localAddress: "x" })).rejects.toThrow(/no iv/);
+  });
+});
+
+describe("adoptionCandidates", () => {
+  const dev = (serialNumber: number | undefined, cipherType: string, extra: Partial<{ address: string; iv: Buffer | undefined }> = {}) =>
+    new CLUDevice({ serialNumber, address: "address" in extra ? extra.address : `10.0.0.${serialNumber ?? 0}`, iv: "iv" in extra ? extra.iv : randomBytes(16), cipherType } as never);
+
+  it("proposes CLUs not under the project key: no PIN stored = new, PIN stored but other key = rekey", () => {
+    const found = [dev(30, CipherType.NONE), dev(10, CipherType.UNKNOWN), dev(20, CipherType.PROJECT)];
+    expect(adoptionCandidates(found)).toEqual([
+      { serial: 10, address: "10.0.0.10", reason: "new" },
+      { serial: 30, address: "10.0.0.30", reason: "rekey" },
+    ]);
+  });
+
+  it("skips declined CLUs and replies that cannot be adopted (no serial / address / iv)", () => {
+    const found = [dev(10, CipherType.UNKNOWN), dev(11, CipherType.UNKNOWN), dev(undefined, CipherType.UNKNOWN),
+      dev(12, CipherType.UNKNOWN, { address: "" }), dev(13, CipherType.UNKNOWN, { iv: undefined })];
+    expect(adoptionCandidates(found, new Set([10]))).toEqual([{ serial: 11, address: "10.0.0.11", reason: "new" }]);
+  });
+
+  it("nothing to propose when every CLU is adopted", () => {
+    expect(adoptionCandidates([dev(1, CipherType.PROJECT)])).toEqual([]);
+  });
+});
+
+describe("dropAnswering", () => {
+  it("drops CLUs answering check alive under our key; keeps silent, refusing and failing ones", async () => {
+    const c = (serial: number) => ({ serial, address: `10.0.0.${serial}`, reason: "new" as const });
+    const probe = async (serial: number) => {
+      if (serial === 4) throw new Error("timeout");
+      return serial === 1 ? true : serial === 2 ? false : null;
+    };
+    expect((await dropAnswering([c(1), c(2), c(3), c(4)], probe)).map((x) => x.serial)).toEqual([2, 3, 4]);
   });
 });

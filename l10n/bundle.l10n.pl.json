@@ -275,5 +275,12 @@
   "class {0}, version {1}": "klasa {0}, wersja {1}",
   "New virtual object on {0}": "Nowy obiekt wirtualny na {0}",
   "New {0} on {1}": "Nowy {0} na {1}",
-  "Object name (NAME_PERIPHERY): letters, digits, _": "Nazwa obiektu (NAME_PERIPHERY): litery, cyfry, _"
+  "Object name (NAME_PERIPHERY): letters, digits, _": "Nazwa obiektu (NAME_PERIPHERY): litery, cyfry, _",
+  "Not now": "Nie teraz",
+  "holds another project key": "ma klucz innego projektu",
+  "not in this project": "nie należy do tego projektu",
+  "OpenGr8on: found {0} CLUs not adopted by this project.": "OpenGr8on: znaleziono {0} CLU niedołączonych do tego projektu.",
+  "Adopt…": "Dołącz…",
+  "OpenGr8on: adopt a CLU into this project": "OpenGr8on: dołącz CLU do tego projektu",
+  "OpenGr8on: found {0} ({1}), {2}. Adopt it?": "OpenGr8on: znaleziono {0} ({1}), {2}. Dołączyć?"
 }
