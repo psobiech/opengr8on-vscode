@@ -228,6 +228,7 @@ export function emitUserLua(clu: Clu, opts: EmitOptions = {}): string {
  * OM.LUA / USER.LUA never runs them (no SYSTEM.Init: no module bus, no events).
  */
 export function emitMainLua(clu: Clu, opts: EmitOptions = {}): string {
+  if (clu.hwType === GATE_HW_TYPE) return gateMainLua(opts);
   const sn = /^CLU(\d+)$/.exec(clu.id)?.[1];
   const alive = sn != null ? ["function checkAlive()", `\treturn "${Number(sn).toString(16).padStart(8, "0")}"`, "end", ""] : [];
   return [
@@ -245,6 +246,32 @@ export function emitMainLua(clu: Clu, opts: EmitOptions = {}): string {
     "repeat",
     "\tSYSTEM.Loop()",
     "until 1==2",
+    "",
+  ].join(opts.eol ?? "\r\n");
+}
+
+/**
+ * MAIN.LUA of a GATE (observed, byte-identical on GATE_ALARM and GATE_MODBUS, fw 0x456; fixture
+ * `real-gate.MAIN.LUA`): no SYSTEM.Loop() loop (the GATE firmware loops after SYSTEM.Init()), and
+ * checkAlive() only prints "true" — the GATE answers a checkAlive() request itself with its serial
+ * in hex (observed on both).
+ */
+function gateMainLua(opts: EmitOptions): string {
+  return [
+    "",
+    'collectgarbage("collect")',
+    'require "user"',
+    "",
+    'collectgarbage("collect")',
+    'require "om"',
+    'collectgarbage("collect")',
+    "",
+    "",
+    "function checkAlive()",
+    '\tprint("true")',
+    "end",
+    "",
+    "SYSTEM.Init()",
     "",
   ].join(opts.eol ?? "\r\n");
 }

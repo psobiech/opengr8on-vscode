@@ -186,6 +186,30 @@ projects. `5000` and the two empty strings were constant in all 4 samples (meani
 GATEs are declared on the CLUs like any remote CLU (`OBJECT:new(1, ip, id)`). Modules / virtual
 objects on a GATE: **unknown** (resolver error). Byte-identical for both GATEs in three .omp files.
 
+### GATE MAIN.LUA — **observed** (GATE_ALARM and GATE_MODBUS, fw 0x456, byte-identical; fixture `real-gate.MAIN.LUA`)
+
+Unlike a CLU's: no `repeat SYSTEM.Loop() until …` (the GATE firmware keeps looping after the
+script returns), two blank lines before `checkAlive()`, which only prints `"true"` (TAB-indented)
+and does not depend on the serial. A `checkAlive()` request is still answered with the serial in
+hex (observed on both GATEs, 2026-11-13): the GATE firmware answers it itself.
+
+```
+<blank>
+collectgarbage("collect")
+require "user"
+<blank>
+collectgarbage("collect")
+require "om"
+collectgarbage("collect")
+<blank>
+<blank>
+function checkAlive()
+	print("true")
+end
+<blank>
+SYSTEM.Init()
+```
+
 ## USER.LUA layout (confirmed: one script, and three scripts with parameters — `real-117c.USER.LUA`)
 
 Every script is this block; the blocks are simply concatenated (so 6 blank lines between two scripts):

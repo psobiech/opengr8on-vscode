@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { buildFiles, cluOfScript, encodeOmFile } from "../../src/views/projectCommands";
 
 describe("encodeOmFile", () => {
@@ -28,6 +30,13 @@ describe("buildFiles", () => {
     expect(buildFiles(clu).main.includes(Buffer.from("\r\n"))).toBe(true);
     // no serial in the id: the CLU's own checkAlive() stays
     expect(buildFiles({ ...clu, id: "X" }, "\n").main.toString()).not.toContain("checkAlive");
+  });
+
+  it("builds a GATE's MAIN.LUA byte for byte like the real GATE (no loop, checkAlive prints)", () => {
+    const gate = { name: "ALARM", id: "CLU511002130", ip: "10.0.0.4", netmask: "255.255.255.0", gateway: "10.0.0.1", fwType: 2, fwVersion: 0x456, hwType: 0x12, hwVersion: 2, remotes: [], features: [], events: [], modules: [], scripts: [] };
+    const real = readFileSync(join(__dirname, "../fixtures/real-gate.MAIN.LUA"));
+    expect(buildFiles(gate, "\n").main).toEqual(real);
+    expect(buildFiles(gate).main.toString()).toBe(real.toString().replace(/\n/g, "\r\n"));
   });
 });
 
