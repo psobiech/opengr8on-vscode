@@ -17,6 +17,18 @@ describe("buildFiles", () => {
     expect(buildFiles(clu).om.includes(Buffer.from("\r\n"))).toBe(true);
     expect(buildFiles(clu, "\n").user.toString()).toContain("\tprint(1)\n");
   });
+
+  it("builds MAIN.LUA like Object Manager: loads user + om, checkAlive = serial hex, Init + Loop", () => {
+    const clu = { name: "X", id: "CLU1114403717", ip: "10.0.0.1", fwType: 3, fwVersion: 1, hwType: 1, hwVersion: 1, remotes: [], features: [], events: [], modules: [], scripts: [] };
+    const main = buildFiles(clu, "\n").main.toString();
+    expect(main.indexOf('require "user"')).toBeLessThan(main.indexOf('require "om"'));
+    expect(main).toContain('function checkAlive()\n\treturn "426c7385"\nend');
+    expect(main.indexOf('require "om"')).toBeLessThan(main.indexOf("SYSTEM.Init()"));
+    expect(main).toContain("repeat\n\tSYSTEM.Loop()\nuntil 1==2\n");
+    expect(buildFiles(clu).main.includes(Buffer.from("\r\n"))).toBe(true);
+    // no serial in the id: the CLU's own checkAlive() stays
+    expect(buildFiles({ ...clu, id: "X" }, "\n").main.toString()).not.toContain("checkAlive");
+  });
 });
 
 describe("cluOfScript", () => {

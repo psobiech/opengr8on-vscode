@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { l10n } from "vscode";
 import { CLUDevice, CLUFiles } from "opengr8on-node/client";
 import type { CluRunner } from "../device/cluRunner";
-import { emitOmLua, emitUserLua } from "../generator/omLua";
+import { emitMainLua, emitOmLua, emitUserLua } from "../generator/omLua";
 import { readOmpProject, readProjectCipherKey, type InterfaceRegistry } from "opengr8on-node/client";
 import type { KeyStore } from "../device/keyStore";
 import { importOmp } from "../project/fromOmp";
@@ -27,8 +27,8 @@ export function encodeOmFile(text: string): Buffer {
 /** Line endings of generated files: OM writes its platform's (Windows CRLF, Linux LF). */
 export type Eol = "\r\n" | "\n";
 
-export function buildFiles(clu: Clu, eol: Eol = "\r\n"): { om: Buffer; user: Buffer } {
-  return { om: encodeOmFile(emitOmLua(clu, { eol })), user: encodeOmFile(emitUserLua(clu, { eol })) };
+export function buildFiles(clu: Clu, eol: Eol = "\r\n"): { om: Buffer; user: Buffer; main: Buffer } {
+  return { om: encodeOmFile(emitOmLua(clu, { eol })), user: encodeOmFile(emitUserLua(clu, { eol })), main: encodeOmFile(emitMainLua(clu, { eol })) };
 }
 
 export interface ProjectCommandDeps {
@@ -440,10 +440,11 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
       if (!r) return;
       try {
         for (const clu of r.clus) {
-          const { om, user } = buildFiles(clu, deps.eol());
+          const { om, user, main } = buildFiles(clu, deps.eol());
           const dir = vscode.Uri.joinPath(r.watcher.root, "build", clu.name);
           await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(dir, "OM.LUA"), om);
           await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(dir, "USER.LUA"), user);
+          await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(dir, "MAIN.LUA"), main);
         }
         deps.log.appendLine(`generate: ${r.clus.map((c) => c.name).join(", ")} -> build/`);
         void vscode.window.showInformationMessage(l10n.t("OpenGr8on: generated {0} CLU(s) into build/.", r.clus.length));
@@ -504,7 +505,7 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
       const pick = items.length === 1 ? items[0] : await vscode.window.showQuickPick(items, { title: l10n.t("OpenGr8on: upload to") });
       if (!pick) return;
 
-      let files: Array<{ clu: Clu; om: Buffer; user: Buffer }>;
+      let files: Array<{ clu: Clu; om: Buffer; user: Buffer; main: Buffer }>;
       try {
         files = pick.clus.map((clu) => ({ clu, ...buildFiles(clu, deps.eol()) }));
       } catch (e) {
@@ -513,7 +514,7 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
       }
       const upload = l10n.t("Upload and Reset");
       const ok = await vscode.window.showWarningMessage(
-        pick.clus.length === 1 ? l10n.t("Upload OM.LUA and USER.LUA to {0} and reset it?", pick.clus[0].name) : l10n.t("Upload OM.LUA and USER.LUA to {0} CLUs and reset them?", pick.clus.length),
+        pick.clus.length === 1 ? l10n.t("Upload MAIN.LUA, OM.LUA and USER.LUA to {0} and reset it?", pick.clus[0].name) : l10n.t("Upload MAIN.LUA, OM.LUA and USER.LUA to {0} CLUs and reset them?", pick.clus.length),
         {
           modal: true,
           detail: `${pick.clus.map((c) => `${c.name}  ${c.ip}  ${c.id}`).join("\n")}\n\n${l10n.t("The CLU program is replaced and the CLU restarts; outputs may switch while it boots.")}`,
@@ -525,7 +526,7 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
       const local = deps.localAddress();
       const results: Array<{ text: string; ok: boolean }> = [];
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: l10n.t("OpenGr8on: upload"), cancellable: false }, async (progress) => {
-        for (const { clu, om, user } of files) {
+        for (const { clu, om, user, main } of files) {
           const serial = serialOf(clu);
           const device = deps.discovered(serial) ?? new CLUDevice({ serialNumber: serial, address: clu.ip });
           try {
@@ -533,6 +534,7 @@ export function registerProjectCommands(context: vscode.ExtensionContext, deps: 
             await deps.runner.upload(local, device, [
               { file: CLUFiles.OM_LUA, content: om },
               { file: CLUFiles.USER_LUA, content: user },
+              { file: CLUFiles.MAIN_LUA, content: main }, // as OM: without it the CLU never runs OM.LUA
             ]);
             progress.report({ message: l10n.t("{0}: restarting…", clu.name) });
             const back = await deps.runner.reset(local, device);

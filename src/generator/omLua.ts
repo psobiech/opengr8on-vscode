@@ -221,3 +221,30 @@ export function emitUserLua(clu: Clu, opts: EmitOptions = {}): string {
   out.push("");
   return out.join(opts.eol ?? "\r\n");
 }
+
+/**
+ * MAIN.LUA as Object Manager uploads it: loads USER.LUA and OM.LUA, answers checkAlive() with the
+ * CLU serial in hex, then SYSTEM.Init() and the SYSTEM.Loop() loop. Without it a CLU only holding
+ * OM.LUA / USER.LUA never runs them (no SYSTEM.Init: no module bus, no events).
+ */
+export function emitMainLua(clu: Clu, opts: EmitOptions = {}): string {
+  const sn = /^CLU(\d+)$/.exec(clu.id)?.[1];
+  const alive = sn != null ? ["function checkAlive()", `\treturn "${Number(sn).toString(16).padStart(8, "0")}"`, "end", ""] : [];
+  return [
+    "",
+    'collectgarbage("collect")',
+    'require "user"',
+    "",
+    'collectgarbage("collect")',
+    'require "om"',
+    'collectgarbage("collect")',
+    "",
+    ...alive,
+    "SYSTEM.Init()",
+    "",
+    "repeat",
+    "\tSYSTEM.Loop()",
+    "until 1==2",
+    "",
+  ].join(opts.eol ?? "\r\n");
+}
