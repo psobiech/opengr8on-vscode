@@ -115,12 +115,12 @@ Wszystko, czego rozszerzenie potrzebuje w działaniu, jest już w pakiecie, stą
 deweloperskie; pakiet zawiera `dist/extension.js`, `dist/interfaces/`, `schemas/`, `resources/`,
 `package.json`, README i licencję (ok. 1,2 MB).
 
-CI (`.github/workflows/ci.yml`) przy każdym pushu / pull requeście do `develop` sprawdza typy, buduje,
+CI (`.github/workflows/ci.yml`) przy każdym pushu / pull requeście do `develop` i tagu `v*` sprawdza typy, buduje,
 uruchamia testy i pakowanie, a plik `.vsix` udostępnia jako artefakt `opengr8on-vscode-vsix`.
 
 ### Wydanie
 
-Wydanie publikuje `.github/workflows/release.yml` po wypchnięciu tagu:
+Wydanie publikuje job `release` w `.github/workflows/ci.yml` po wypchnięciu tagu:
 `git tag vX.Y.Z && git push origin vX.Y.Z`. Wersję wyznacza tag (w CI wpisywana do `package.json`).
 Workflow buduje, testuje i tworzy GitHub Release z `opengr8on-vscode-X.Y.Z.vsix` (+ `.sha256`). Wersja z sufiksem
 (`0.2.0-rc.1`) trafia jako pre-release.

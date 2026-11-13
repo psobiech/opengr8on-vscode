@@ -114,11 +114,11 @@ holds `dist/extension.js`, `dist/interfaces/`, `schemas/`, `resources/`, `packag
 license (about 1.2 MB).
 
 CI (`.github/workflows/ci.yml`) runs typecheck, build, tests and the package step on every push /
-pull request to `develop` and uploads the `.vsix` as the `opengr8on-vscode-vsix` artifact.
+pull request to `develop` and on `v*` tags, and uploads the `.vsix` as the `opengr8on-vscode-vsix` artifact.
 
 ### Release
 
-`.github/workflows/release.yml` publishes a release when a tag is pushed:
+The `release` job of `.github/workflows/ci.yml` publishes a release when a tag is pushed:
 `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag sets the version (written into `package.json` in
 CI). The workflow builds, tests and creates a GitHub Release with `opengr8on-vscode-X.Y.Z.vsix` (+ `.sha256`). A suffixed
 version (`0.2.0-rc.1`) becomes a pre-release.
